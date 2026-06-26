@@ -10,6 +10,7 @@ import {
   getBookWordStats,
   getWordDetail,
   listBooks,
+  reprocessBook,
   reviewBatch,
   setWordNote,
 } from "../books/service.js";
@@ -44,6 +45,20 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/books", async (request) => {
     return { books: await listBooks(request.user!.id) };
+  });
+
+  // Re-extract an existing book with the latest engine (e.g. after a core release).
+  // Reuses the stored file; triage and notes are preserved (see reprocessBook).
+  app.post("/books/:id/reprocess", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const book = await reprocessBook(request.user!.id, id);
+    if (!book) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    await getBoss().send(PROCESS_BOOK_QUEUE, { bookId: book.id });
+    reply.code(202);
+    return { book };
   });
 
   app.get("/books/:id", async (request, reply) => {

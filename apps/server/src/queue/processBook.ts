@@ -42,7 +42,13 @@ export async function processBook(
     .where(eq(bookFiles.bookId, bookId))
     .limit(1);
   if (!file) {
+    // No stored file (e.g. a reprocess of a seed/demo book that never had one). Fail
+    // cleanly so the status doesn't hang on "processing" forever.
     logger.warn({ bookId }, "process-book: no file found");
+    await db
+      .update(books)
+      .set({ status: "failed", error: "No stored file for this book" })
+      .where(eq(books.id, bookId));
     return;
   }
 

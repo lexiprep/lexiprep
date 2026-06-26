@@ -90,6 +90,19 @@ describe("GET /api/books/:id", () => {
   });
 });
 
+describe("POST /api/books/:id/reprocess", () => {
+  it("404s another user's book (tenant isolation, never reaches the queue)", async () => {
+    const book = await createBook(alice.userId);
+    const bob = await signUp("bob@example.com");
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/books/${book.id}/reprocess`,
+      headers: { cookie: bob.cookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("GET /api/books/:id/words", () => {
   it("returns grouped words with stats", async () => {
     const book = await createBook(alice.userId);
