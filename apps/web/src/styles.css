@@ -161,6 +161,7 @@ h4 {
   padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;
+  text-decoration: none; /* so a <Link> styled as a button isn't underlined */
   transition: background 0.12s, border-color 0.12s, opacity 0.12s;
 }
 .btn:hover {
@@ -252,12 +253,46 @@ select:focus {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative; /* anchor for the stretched whole-card link */
+}
+/* Whole-card link: an invisible overlay so clicking anywhere opens the book. */
+.stretched-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 .book-card-top {
   display: flex;
   justify-content: space-between;
   align-items: start;
   gap: 8px;
+}
+.book-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Settings gear sits above the stretched link so it stays separately clickable. */
+.card-gear {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  opacity: 0.6;
+  transition: opacity 0.12s, color 0.12s;
+}
+.card-gear:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 560px;
 }
 .book-card h3 {
   font-size: 16px;
@@ -794,31 +829,6 @@ code {
 }
 .action-hint {
   margin: 8px 0 0;
-}
-
-/* First-stage junk gate */
-.gate {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 28px 22px;
-}
-.gate h3 {
-  font-size: 18px;
-}
-.gate p {
-  max-width: 460px;
-  margin: 0;
-}
-.gate-banner {
-  background: #f7efda;
-  color: var(--amber);
-  border-radius: 8px;
-  padding: 9px 14px;
-  margin: 0 0 12px;
-  font-size: 13px;
 }
 
 /* Danger button + confirm dialog */

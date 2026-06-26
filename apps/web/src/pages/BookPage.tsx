@@ -98,25 +98,7 @@ export function BookPage() {
     [rows, triaged],
   );
   const batchDone = rows.length > 0 && visibleRows.length === 0;
-
-  // First review stage: unleveled words (names / rare words) must be triaged before
-  // moving on to the leveled review. "none/none" is the unleveled-only filter.
-  const junkRemaining = stats?.unleveled ?? 0;
   const toReview = view === ""; // the default untriaged view
-  const inUnleveledView = minLevel === "none" && maxLevel === "none";
-  const showEnterGate = !!stats && toReview && junkRemaining > 0 && !inUnleveledView;
-  const showDoneGate = !!stats && toReview && inUnleveledView && junkRemaining === 0;
-
-  function enterUnleveled() {
-    setMinLevel("none");
-    setMaxLevel("none");
-    resetView();
-  }
-  function exitUnleveled() {
-    setMinLevel("");
-    setMaxLevel("");
-    resetView();
-  }
 
   const markStatus = useMutation({
     mutationFn: (v: { word: string; status: UserWordStatus }) =>
@@ -260,6 +242,9 @@ export function BookPage() {
           ← Books
         </Link>
         <span className="grow" />
+        <Link to={`/books/${id}/settings`} className="btn ghost slim">
+          Settings
+        </Link>
         {ready && (
           <button className="btn ghost slim" onClick={() => setConfirmFinish(true)}>
             Finish book
@@ -355,42 +340,8 @@ export function BookPage() {
             </div>
           )}
 
-          {ready && showEnterGate && (
-            <div className="card gate">
-              <h3>First, clear out the junk</h3>
-              <p className="muted">
-                <strong>{junkRemaining.toLocaleString()}</strong> words have no CEFR
-                level — usually names (“Odysseus”, “Athena”) and rare or uncommon words.
-                Triage these first: mark anything worth studying as <em>Learning</em> and{" "}
-                <em>Ignore</em> the rest. Or switch <em>View</em> to “All words”.
-              </p>
-              <button className="btn primary" onClick={enterUnleveled}>
-                Review {junkRemaining.toLocaleString()} unleveled words →
-              </button>
-            </div>
-          )}
-
-          {ready && showDoneGate && (
-            <div className="card gate">
-              <h3>Junk cleared ✓</h3>
-              <p className="muted">
-                All unleveled words are triaged. On to the leveled vocabulary.
-              </p>
-              <button className="btn primary" onClick={exitUnleveled}>
-                Continue to the leveled review →
-              </button>
-            </div>
-          )}
-
-          {ready && !showEnterGate && !showDoneGate && (
+          {ready && (
             <>
-              {junkRemaining > 0 && inUnleveledView && toReview && (
-                <p className="gate-banner">
-                  Stage 1 · <strong>{junkRemaining.toLocaleString()}</strong> unleveled
-                  words left. Mark anything worth studying; ignore the rest.
-                </p>
-              )}
-
               {stats && (
                 <p className="stats-line muted small">
                   <strong>{visibleRows.length.toLocaleString()}</strong>

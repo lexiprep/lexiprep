@@ -120,6 +120,12 @@ export function uploadBook(file: File): Promise<Book> {
   );
 }
 
+/** Re-extract a book with the latest engine. Triage and notes are preserved server-side. */
+export const reprocessBook = (id: string) =>
+  request<{ book: Book }>(`/api/books/${id}/reprocess`, { method: "POST" }).then(
+    (r) => r.book,
+  );
+
 export interface WordsParams {
   limit: number;
   offset: number;
