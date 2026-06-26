@@ -223,6 +223,46 @@ export const getReviewWords = (params: ReviewWordsParams) =>
     `/api/words/review${qs({ ...params })}`,
   );
 
+// ── Vocabulary stats ─────────────────────────────────────────────────────────
+
+export interface VocabCounts {
+  learning: number;
+  known: number;
+  ignored: number;
+}
+
+/** Per-status vocabulary counts for the tab badges (0-occurrence words excluded). */
+export const getVocabCounts = (language = "en") =>
+  request<VocabCounts>(`/api/words/counts${qs({ language })}`);
+
+export type Granularity = "day" | "week" | "month";
+
+export interface TimeseriesPoint {
+  /** Bucket start, YYYY-MM-DD. */
+  period: string;
+  /** Words added (first triaged) in this bucket, by current status. */
+  learning: number;
+  known: number;
+}
+
+export interface VocabularyTimeseries {
+  granularity: Granularity;
+  /** Totals accumulated before the range start (so cumulative charts start from the truth). */
+  baseline: { learning: number; known: number };
+  buckets: TimeseriesPoint[];
+}
+
+export interface TimeseriesParams {
+  /** YYYY-MM-DD (inclusive). */
+  from: string;
+  to: string;
+  granularity: Granularity;
+  language?: string;
+}
+
+export const getVocabTimeseries = (p: TimeseriesParams) =>
+  request<VocabularyTimeseries>(`/api/words/stats/timeseries${qs({ ...p })}`);
+
 export const setWordStatus = (
   lemma: string,
   status: UserWordStatus,

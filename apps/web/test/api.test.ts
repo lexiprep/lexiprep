@@ -2,6 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   exportDeckUrl,
   getBookWords,
+  getVocabCounts,
+  getVocabTimeseries,
   reviewBatch,
   clearWordStatus,
 } from "../src/lib/api";
@@ -51,6 +53,25 @@ describe("query-string building (via getBookWords)", () => {
     // but a numeric 0 (offset) is kept.
     expect(url).toContain("offset=0");
     expect(url).not.toContain("includeStopwords");
+  });
+});
+
+describe("vocabulary stats endpoints", () => {
+  it("getVocabCounts hits /api/words/counts with the language", async () => {
+    const f = mockFetch({ learning: 1, known: 2, ignored: 0 });
+    const out = await getVocabCounts("en");
+    expect(out).toEqual({ learning: 1, known: 2, ignored: 0 });
+    expect(f.mock.calls[0]![0]).toBe("/api/words/counts?language=en");
+  });
+
+  it("getVocabTimeseries passes from/to/granularity", async () => {
+    const f = mockFetch({ granularity: "week", baseline: { learning: 0, known: 0 }, buckets: [] });
+    await getVocabTimeseries({ from: "2026-01-01", to: "2026-03-01", granularity: "week" });
+    const url = f.mock.calls[0]![0] as string;
+    expect(url).toContain("/api/words/stats/timeseries?");
+    expect(url).toContain("from=2026-01-01");
+    expect(url).toContain("to=2026-03-01");
+    expect(url).toContain("granularity=week");
   });
 });
 

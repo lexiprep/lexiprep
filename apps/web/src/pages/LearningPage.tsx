@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import {
   getReviewWords,
+  getVocabCounts,
   listBooks,
   setWordStatus,
   type ReviewWord,
@@ -17,6 +18,7 @@ import { LevelBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
 import { ExportModal } from "../components/ExportModal";
+import { VocabularyStats } from "../components/VocabularyStats";
 
 const LANG = "en";
 const PAGE_SIZES = [20, 50, 100];
@@ -24,16 +26,28 @@ const PAGE_SIZES = [20, 50, 100];
 const SORT_OPTIONS = [
   { value: "added:desc", label: "Recently added" },
   { value: "word:asc", label: "A → Z" },
+  { value: "word:desc", label: "Z → A" },
   { value: "level:asc", label: "Level ↑" },
   { value: "level:desc", label: "Level ↓" },
   { value: "count:desc", label: "Most frequent" },
+  { value: "count:asc", label: "Least frequent" },
 ];
+
+// Click a column header to sort: first click uses this direction, clicking again flips it.
+type SortField = "word" | "level" | "count";
+const SORT_FIRST_DIR: Record<SortField, "asc" | "desc"> = {
+  word: "asc",
+  level: "asc",
+  count: "desc",
+};
 
 const STATUS_TABS: { value: UserWordStatus; label: string }[] = [
   { value: "learning", label: "Learning" },
   { value: "known", label: "Known" },
   { value: "ignored", label: "Ignored" },
 ];
+
+type Tab = UserWordStatus | "stats";
 
 // Color + verb label per status (matches the badges / modal). Used for the inline "move
 // to" buttons, which always offer the two states a word is not currently in.
@@ -52,7 +66,9 @@ const ALL_STATUSES: UserWordStatus[] = ["learning", "known", "ignored"];
 export function LearningPage() {
   const qc = useQueryClient();
 
-  const [status, setStatus] = useState<UserWordStatus>("learning");
+  const [tab, setTab] = useState<Tab>("learning");
+  const isStats = tab === "stats";
+  const status: UserWordStatus = isStats ? "learning" : tab;
   const [pageSize, setPageSize] = useState(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [bookId, setBookId] = useState("");
@@ -80,6 +96,12 @@ export function LearningPage() {
   const booksQ = useQuery({ queryKey: ["books"], queryFn: listBooks });
   const readyBooks = (booksQ.data ?? []).filter((b) => b.status === "ready");
 
+  const countsQ = useQuery({
+    queryKey: ["vocab-counts", LANG],
+    queryFn: () => getVocabCounts(LANG),
+  });
+  const counts = countsQ.data;
+
   const wordsQ = useQuery({
     queryKey: [
       "review",
@@ -96,8 +118,33 @@ export function LearningPage() {
         sort,
         q: search || undefined,
       }),
+    enabled: !isStats,
     placeholderData: keepPreviousData,
   });
+
+  // Column-header sorting: toggle direction on the active column, else use its default.
+  const [sortField, sortDir] = sort.split(":");
+  function toggleSort(field: SortField) {
+    setSort((cur) => {
+      const [f, d] = cur.split(":");
+      return `${field}:${f === field ? (d === "asc" ? "desc" : "asc") : SORT_FIRST_DIR[field]}`;
+    });
+    resetView();
+  }
+  const sortableTh = (field: SortField, label: string, right = false) => (
+    <th
+      className={`sortable${right ? " right" : ""}`}
+      aria-sort={
+        sortField === field ? (sortDir === "asc" ? "ascending" : "descending") : "none"
+      }
+      onClick={() => toggleSort(field)}
+    >
+      {label}
+      {sortField === field && (
+        <span className="sort-ind">{sortDir === "asc" ? " ▲" : " ▼"}</span>
+      )}
+    </th>
+  );
   const rows = wordsQ.data?.words ?? [];
   const stats = wordsQ.data?.stats;
   const hasMore = rows.length === pageSize;
@@ -109,6 +156,7 @@ export function LearningPage() {
       // The word leaves the current list, and book review tables reflect the new status.
       qc.invalidateQueries({ queryKey: ["review"] });
       qc.invalidateQueries({ queryKey: ["words"] });
+      qc.invalidateQueries({ queryKey: ["vocab-counts"] });
     },
   });
 
@@ -119,7 +167,7 @@ export function LearningPage() {
     <section>
       <div className="page-head">
         <h2>Vocabulary</h2>
-        {status === "learning" && (
+        {tab === "learning" && (
           <button
             className="btn primary push-right"
             onClick={() => setShowExport(true)}
@@ -136,18 +184,31 @@ export function LearningPage() {
           <button
             key={t.value}
             role="tab"
-            aria-selected={status === t.value}
-            className={`tab${status === t.value ? " active" : ""}`}
+            aria-selected={tab === t.value}
+            className={`tab${tab === t.value ? " active" : ""}`}
             onClick={() => {
-              setStatus(t.value);
+              setTab(t.value);
               resetView();
             }}
           >
             {t.label}
+            {counts && <span className="tab-count"> ({counts[t.value].toLocaleString()})</span>}
           </button>
         ))}
+        <button
+          role="tab"
+          aria-selected={isStats}
+          className={`tab${isStats ? " active" : ""}`}
+          onClick={() => setTab("stats")}
+        >
+          Stats
+        </button>
       </div>
 
+      {isStats && <VocabularyStats />}
+
+      {!isStats && (
+      <>
       <div className="toolbar">
         <label className="ctl">
           Book
@@ -239,9 +300,9 @@ export function LearningPage() {
         <table className="words">
           <thead>
             <tr>
-              <th>Word</th>
-              <th>Level</th>
-              <th className="right">Count</th>
+              {sortableTh("word", "Word")}
+              {sortableTh("level", "Level")}
+              {sortableTh("count", "Count", true)}
               <th>Book</th>
               <th className="right">Triage</th>
             </tr>
@@ -331,6 +392,8 @@ export function LearningPage() {
           Next →
         </button>
       </div>
+      </>
+      )}
 
       {openWord && openWord.bookId && (
         <WordModal
