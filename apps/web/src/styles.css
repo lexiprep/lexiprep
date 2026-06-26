@@ -895,3 +895,87 @@ code {
   height: 16px;
   accent-color: var(--accent, #2563eb);
 }
+
+/* ── Vocabulary tab counts + sortable headers reuse ───────────────────────── */
+.tab-count {
+  color: var(--muted);
+  font-weight: 500;
+}
+.tab[aria-selected="true"] .tab-count {
+  color: inherit;
+}
+
+/* ── Date range picker (react-day-picker popover) ─────────────────────────── */
+.date-range {
+  position: relative;
+}
+.dropdown-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.date-range-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  padding: 10px 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --rdp-accent-color: var(--accent);
+  --rdp-accent-background-color: color-mix(in srgb, var(--accent) 15%, #fff);
+}
+
+/* Segmented control (granularity day/week/month) */
+.seg-group {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.seg {
+  font: inherit;
+  font-weight: 550;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 14px;
+  cursor: pointer;
+  border-left: 1px solid var(--border);
+}
+.seg:first-child {
+  border-left: none;
+}
+.seg:hover {
+  background: #f0f2f5;
+}
+.seg.active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.preset-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── Stats view (charts) ──────────────────────────────────────────────────── */
+.stats-view {
+  margin-top: 12px;
+}
+.stats-toolbar {
+  align-items: center;
+}
+.charts {
+  display: grid;
+  gap: 16px;
+}
+.chart-card {
+  padding: 16px 14px 10px;
+}
+.chart-card h3 {
+  font-size: 15px;
+  margin: 0;
+}
+.chart-card .muted.small {
+  margin: 2px 0 10px;
+}

@@ -52,9 +52,10 @@ describe("listLearningWords", () => {
     expect(ocean!.bookId).toBe(book1Id);
   });
 
-  it("includes manually-added words (no book) with zero count and null level", async () => {
+  it("excludes words that no longer occur in any book (zero count)", async () => {
+    // "abyss" is triaged but present in no book — it must not appear in the vocabulary.
     const abyss = (await listLearningWords(userId, {})).find((r) => r.word === "abyss");
-    expect(abyss).toMatchObject({ count: 0, bookCount: 0, level: null });
+    expect(abyss).toBeUndefined();
   });
 
   it("filters to a single book, dropping words not in it", async () => {
@@ -79,16 +80,17 @@ describe("listLearningWords", () => {
   });
 
   it("only returns words of the requested status", async () => {
-    await setUserWord(userId, "en", "known-word", "known");
+    await addBookWords(book1Id, [{ word: "reef", lemma: "reef", count: 1, level: "B2" }]);
+    await setUserWord(userId, "en", "reef", "known");
     const rows = await listLearningWords(userId, { status: "known" });
-    expect(rows.map((r) => r.word)).toEqual(["known-word"]);
+    expect(rows.map((r) => r.word)).toEqual(["reef"]);
   });
 });
 
 describe("countLearningWords", () => {
   it("reports total of the status and the filtered subset", async () => {
     const stats = await countLearningWords(userId, { minLevel: "B2" });
-    expect(stats.total).toBe(4); // ocean, suitor, tide, abyss
+    expect(stats.total).toBe(3); // ocean, suitor, tide (abyss excluded — in no book)
     expect(stats.filtered).toBe(2); // suitor + tide
   });
 });

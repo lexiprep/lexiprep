@@ -4,11 +4,15 @@ import { USER_WORD_STATUSES, type UserWordStatus } from "../db/schema.js";
 import {
   buildAnkiDeck,
   countLearningWords,
+  countUserWordsByStatus,
   deleteUserWord,
+  getVocabularyTimeseries,
+  GRANULARITIES,
   listLearningWords,
   listUserWords,
   upsertUserWords,
   type DeckCard,
+  type Granularity,
   type UserWordItem,
 } from "../books/service.js";
 
@@ -101,6 +105,42 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       countLearningWords(request.user!.id, opts),
     ]);
     return { words, stats };
+  });
+
+  // Per-status counts for the vocabulary tab badges (0-occurrence words excluded).
+  app.get("/words/counts", async (request) => {
+    const q = request.query as Record<string, string | undefined>;
+    return countUserWordsByStatus(request.user!.id, q.language ?? DEFAULT_LANGUAGE);
+  });
+
+  // Vocabulary growth over time: words added per bucket (day/week/month), by status,
+  // plus a baseline of what was accumulated before the range (for cumulative charts).
+  app.get("/words/stats/timeseries", async (request, reply) => {
+    const q = request.query as Record<string, string | undefined>;
+    const granularity = (q.granularity ?? "day") as Granularity;
+    if (!(GRANULARITIES as readonly string[]).includes(granularity)) {
+      reply.code(400);
+      return { error: `granularity must be one of ${GRANULARITIES.join(", ")}` };
+    }
+    const parseDay = (s: string | undefined): Date | null => {
+      if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+      const d = new Date(`${s}T00:00:00.000Z`);
+      return Number.isNaN(d.getTime()) ? null : d;
+    };
+    const now = new Date();
+    const to = parseDay(q.to) ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const from =
+      parseDay(q.from) ?? new Date(to.getTime() - 89 * 24 * 60 * 60 * 1000); // default: 90 days
+    if (from > to) {
+      reply.code(400);
+      return { error: "`from` must be on or before `to`" };
+    }
+    return getVocabularyTimeseries(request.user!.id, {
+      language: q.language ?? DEFAULT_LANGUAGE,
+      from,
+      to,
+      granularity,
+    });
   });
 
   // Export the learning list as an Anki TSV deck (front = word + context, back = definition).
