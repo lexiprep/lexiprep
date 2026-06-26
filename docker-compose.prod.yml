@@ -80,8 +80,25 @@ services:
       - nm_root:/workspace/lexiprep/node_modules
       - nm_server:/workspace/lexiprep/apps/server/node_modules
       - nm_web:/workspace/lexiprep/apps/web/node_modules
+    # No host port — caddy is the only public entry and reaches web:5173 over the
+    # compose network.
+
+  # Reverse proxy / the single public entry. Serves plain HTTP on :80 by default
+  # (http://SERVER_IP). Set SITE_ADDRESS=your.domain in .env → automatic HTTPS on :443.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
   # DB backups → Cloudflare R2 (see apps/server/ops/backup, spec 08). A busybox-crond
   # sidecar: pg_dump → gzip → rclone copy → verify → healthchecks.io ping. Opt-in —
@@ -115,3 +132,5 @@ volumes:
   nm_root:
   nm_server:
   nm_web:
+  caddy_data:
+  caddy_config:

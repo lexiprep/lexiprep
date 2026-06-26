@@ -70,9 +70,14 @@ then:
 make install   # build images + populate the deps volumes
 make migrate   # create the schema (drizzle-kit push)
 make seed      # load CEFR word levels
-make prod-up   # start db + server + web + backup
+make prod-up   # start the stack (db, server, web, caddy, backup)
 make prod-dict # load the offline dictionary (~10 MB, one time)
 ```
+
+A **Caddy** reverse proxy is the public entry. By default it serves plain HTTP on `:80`, so
+the app is reachable at **`http://SERVER_IP`** immediately — set `BETTER_AUTH_URL`/`WEB_ORIGIN`
+to that. When you have a domain, set `SITE_ADDRESS=your.domain` in `.env` (and switch those two
+to `https://your.domain`); Caddy auto-provisions HTTPS on `:443`.
 
 **Every update after that:** `make deploy` (git pull → rebuild → swap with minimal downtime →
 migrate). `make prod-up` / `prod-down` / `prod-logs` manage the stack; `make backup` runs a

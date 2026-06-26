@@ -1,0 +1,13 @@
+# lexiprep reverse proxy.
+#
+# Default site address ":80" serves plain HTTP on the server's IP today — visit
+# http://SERVER_IP. No TLS is possible on a bare IP (no hostname to issue a cert for).
+#
+# When you point a domain here, set SITE_ADDRESS in .env to that hostname, e.g.
+#   SITE_ADDRESS=lexiprep.example.com
+# and Caddy automatically provisions + renews a Let's Encrypt certificate on :443.
+# Also update BETTER_AUTH_URL / WEB_ORIGIN to the https:// domain. Nothing else changes.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+	reverse_proxy web:5173
+}
