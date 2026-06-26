@@ -38,8 +38,8 @@ migrate: ## [prod] Apply schema changes to the database (drizzle-kit push)
 
 deploy: ## [prod] CI/CD: git pull, rebuild images, swap with minimal downtime, then migrate
 	git pull --ff-only
-	$(PROD) build                          # build while the old containers keep serving
-	$(PROD) up -d --force-recreate server web  # quick swap (web waits for server healthy)
+	$(PROD) build                              # build while the old containers keep serving
+	$(PROD) up -d --force-recreate server web backup  # quick swap (web waits for server healthy)
 	$(MAKE) migrate
 	@echo "Deployed → http://localhost:$${WEB_PORT:-5173}"
 
@@ -55,8 +55,14 @@ prod-logs: ## [prod] Tail production logs
 prod-dict: ## [prod] Refresh the dictionary in production (safe upsert)
 	$(PROD) exec server pnpm db:definitions
 
+backup: ## [prod] Run a DB backup to R2 right now (the sidecar also runs it on schedule)
+	$(PROD) exec backup /backup/pg-backup.sh
+
+backup-logs: ## [prod] Tail the backup log
+	$(PROD) exec backup sh -c "touch /var/log/pg-backup.log && tail -n 200 -f /var/log/pg-backup.log"
+
 help: ## Show available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: up down build logs test dict-update install migrate deploy prod-up prod-down prod-logs prod-dict help
+.PHONY: up down build logs test dict-update install migrate deploy prod-up prod-down prod-logs prod-dict backup backup-logs help

@@ -1,0 +1,7 @@
+[${BACKUP_R2_REMOTE}]
+type = s3
+provider = Cloudflare
+access_key_id = ${BACKUP_R2_ACCESS_KEY_ID}
+secret_access_key = ${BACKUP_R2_SECRET_ACCESS_KEY}
+endpoint = ${BACKUP_R2_ENDPOINT}
+acl = private

@@ -33,12 +33,35 @@ A dedicated **`docker-compose.prod.yml`** (separate from the dev `docker-compose
 | `migrate` | `drizzle-kit push` via a one-off container — applies schema changes. |
 | `prod-up` / `prod-down` / `prod-logs` | Manage the stack. |
 | `prod-dict` | Refresh the offline dictionary (safe upsert, no downtime). |
+| `backup` / `backup-logs` | Run a DB backup now (also runs on schedule) / tail the backup log. |
 
 ## Required secrets (`.env`)
 
 `POSTGRES_PASSWORD`, `BETTER_AUTH_SECRET` (≥32 random chars), `BETTER_AUTH_URL` and
 `WEB_ORIGIN` (the public origin the browser uses — with the proxy that's the **web** URL).
 Compose fails fast if `POSTGRES_PASSWORD` / `BETTER_AUTH_SECRET` are unset.
+
+## Backups → Cloudflare R2
+
+A **`backup`** sidecar (`apps/server/ops/backup/`, adapted from clara's mechanism) dumps
+Postgres to R2 on a schedule. Self-contained: a busybox-crond container runs `pg_dump →
+gzip → rclone copy → read-back verify → healthchecks.io ping`.
+
+- **Image**: `postgres:17-alpine` (so `pg_dump` matches the server) + `rclone jq gettext curl bash`.
+- **Layout**: `<bucket>/<prefix>/<host>/<daily|monthly>/<db>_YYYY-MM-DD.sql.gz`. Date-only
+  filenames → same-day re-runs overwrite; the **1st of the month** also lands in `monthly/`
+  for longer retention. Default bucket `lexiprep`, prefix `db-backups` (so the bucket can hold
+  other lexiprep data later).
+- **Config** is `.env`-driven (`BACKUP_R2_*`, `BACKUP_CRON`, `BACKUP_MIN_SIZE`, `BACKUP_HOSTNAME`,
+  optional `BACKUP_HC_URL`). The credentials reuse an existing R2 account. **Opt-in**: with the
+  R2 keys unset the sidecar stays idle, so it never blocks the stack.
+- **Safety**: a dump below `BACKUP_MIN_SIZE`, a failed upload, or a failed read-back all abort
+  and ping `…/fail` immediately. `deploy` recreates `backup` alongside `server`/`web`.
+- **Restore** (manual): `gunzip -c <db>_DATE.sql.gz | docker compose -f docker-compose.prod.yml exec -T db psql -U lexiprep -d lexiprep`.
+  The dump is `--clean --if-exists`, so it drops-and-recreates objects idempotently.
+
+Open: no automatic pruning of old `daily/` files yet (cheap at this scale — one small gzip
+per day); add an rclone-delete retention step if it ever matters. `monthly/` is the long tail.
 
 ## Known trade-offs / open questions
 
