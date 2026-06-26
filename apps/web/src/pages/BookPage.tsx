@@ -17,6 +17,7 @@ import {
   finishBook,
   getBook,
   getBookWords,
+  reviewBatch,
   setWordStatus,
   type BookWordRow,
   type UserWordStatus,
@@ -52,6 +53,7 @@ export function BookPage() {
   const [triaged, setTriaged] = useState<Set<string>>(new Set());
   const [openWord, setOpenWord] = useState<string | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const [confirmComplete, setConfirmComplete] = useState(false);
 
   function resetView() {
     setPageIndex(0);
@@ -231,6 +233,23 @@ export function BookPage() {
     onSuccess: () => {
       reloadQueue();
       setConfirmFinish(false);
+    },
+  });
+
+  // "Complete batch": mark every word still showing in the current batch as known in one
+  // request, then advance to the next batch. Per-row "Learning"/"Ignore" already dropped
+  // out of visibleRows, so this only resolves the ones you haven't picked out.
+  const completeBatch = useMutation({
+    mutationFn: () =>
+      reviewBatch(
+        id,
+        visibleRows.map((r) => r.word),
+        [],
+        "known",
+      ),
+    onSuccess: () => {
+      reloadQueue();
+      setConfirmComplete(false);
     },
   });
 
@@ -497,6 +516,16 @@ export function BookPage() {
                     Next →
                   </button>
                 </div>
+                {toReview && visibleRows.length > 0 && (
+                  <div className="review-actions">
+                    <button
+                      className="btn primary"
+                      onClick={() => setConfirmComplete(true)}
+                    >
+                      Complete batch
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -512,6 +541,19 @@ export function BookPage() {
           busy={finish.isPending}
           onConfirm={() => finish.mutate()}
           onCancel={() => setConfirmFinish(false)}
+        />
+      )}
+
+      {confirmComplete && (
+        <ConfirmDialog
+          title="Complete this batch?"
+          message={`All ${visibleRows.length.toLocaleString()} word${
+            visibleRows.length === 1 ? "" : "s"
+          } still showing in this batch will be marked as known.`}
+          confirmLabel="Mark all known"
+          busy={completeBatch.isPending}
+          onConfirm={() => completeBatch.mutate()}
+          onCancel={() => setConfirmComplete(false)}
         />
       )}
 
