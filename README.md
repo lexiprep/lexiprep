@@ -60,16 +60,23 @@ load the offline dictionary.
 ## Deploy (self-host)
 
 A separate production stack (`docker-compose.prod.yml`) keeps node_modules in volumes, so
-deploys don't reinstall. Set strong secrets in `.env` (`POSTGRES_PASSWORD`,
-`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `WEB_ORIGIN`), then:
+deploys don't reinstall. Core comes from npm, so prod needs **only this repo**.
+
+**First run** (one time) — clone, set strong secrets in `.env` (`POSTGRES_PASSWORD`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `WEB_ORIGIN`; optional `BACKUP_R2_*` for backups),
+then:
 
 ```bash
-make install   # once, and whenever the lockfile changes — populates the deps volumes
-make deploy    # CI/CD: git pull → rebuild → swap (minimal downtime) → migrate
+make install   # build images + populate the deps volumes
+make migrate   # create the schema (drizzle-kit push)
+make seed      # load CEFR word levels
+make prod-up   # start db + server + web + backup
+make prod-dict # load the offline dictionary (~10 MB, one time)
 ```
 
-`make prod-up` / `prod-down` / `prod-logs` manage the stack; `make migrate` applies schema
-changes; `make prod-dict` refreshes the dictionary. See [`docs/specs/08-deployment.md`](./docs/specs/08-deployment.md).
+**Every update after that:** `make deploy` (git pull → rebuild → swap with minimal downtime →
+migrate). `make prod-up` / `prod-down` / `prod-logs` manage the stack; `make backup` runs a
+DB backup now. See [`docs/specs/08-deployment.md`](./docs/specs/08-deployment.md).
 
 ## Status
 

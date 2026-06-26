@@ -28,13 +28,17 @@ A dedicated **`docker-compose.prod.yml`** (separate from the dev `docker-compose
 
 ## Commands (Makefile)
 
+**First run:** `install` → `migrate` → `seed` → `prod-up` → `prod-dict`. After that, every
+update is just `deploy`.
+
 | `make …` | Does |
 |---|---|
-| `install` | `pnpm install --frozen-lockfile` into the deps volumes (app workspace + core). Run once, and whenever the lockfile changes. |
-| `deploy` | `git pull --ff-only` → `build` (old keeps serving) → `up -d --force-recreate server web` (swap; web waits for server healthy) → `migrate`. |
-| `migrate` | `drizzle-kit push` via a one-off container — applies schema changes. |
+| `install` | `pnpm install --frozen-lockfile` into the deps volumes. Run once, and whenever the lockfile changes. |
+| `migrate` | `drizzle-kit push` via a one-off container — creates/updates the schema. |
+| `seed` | Seed CEFR word levels (one-off container; idempotent — re-run if the wordlist changes). |
 | `prod-up` / `prod-down` / `prod-logs` | Manage the stack. |
-| `prod-dict` | Refresh the offline dictionary (safe upsert, no downtime). |
+| `prod-dict` | Load/refresh the offline dictionary (~10 MB; safe upsert, no downtime). |
+| `deploy` | `git pull --ff-only` → `build` (old keeps serving) → `up -d --force-recreate server web backup` (swap; web waits for server healthy) → `migrate`. |
 | `backup` / `backup-logs` | Run a DB backup now (also runs on schedule) / tail the backup log. |
 
 ## Required secrets (`.env`)

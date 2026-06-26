@@ -35,6 +35,9 @@ install: ## [prod] Install/update node_modules into the persisted volumes (run w
 migrate: ## [prod] Apply schema changes to the database (drizzle-kit push)
 	$(PROD) run --rm server pnpm db:push
 
+seed: ## [prod] Seed CEFR word levels (one-time; idempotent, re-run if the wordlist changes)
+	$(PROD) run --rm server pnpm db:seed
+
 deploy: ## [prod] CI/CD: git pull, rebuild images, swap with minimal downtime, then migrate
 	git pull --ff-only
 	$(PROD) build                              # build while the old containers keep serving
@@ -64,4 +67,4 @@ help: ## Show available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: up down build logs test dict-update install migrate deploy prod-up prod-down prod-logs prod-dict backup backup-logs help
+.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict backup backup-logs help
