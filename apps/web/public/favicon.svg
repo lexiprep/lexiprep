@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="lexiprep">
+  <rect width="32" height="32" rx="7.5" fill="#2f6f6a"/>
+  <!-- open book -->
+  <path d="M16 9.4C12.2 7.7 7.6 8 4.6 9.7L4.6 22.6C7.6 20.9 12.2 20.6 16 22.3C19.8 20.6 24.4 20.9 27.4 22.6L27.4 9.7C24.4 8 19.8 7.7 16 9.4Z" fill="#f6ead2"/>
+  <!-- center gutter -->
+  <path d="M16 10 16 21.8" stroke="#2f6f6a" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+  <!-- text lines: top line on each page = highlighted high-value word -->
+  <g stroke-linecap="round">
+    <path d="M7.4 13.4 13.7 12.9" stroke="#c2521f" stroke-width="2.4"/>
+    <path d="M18.3 12.9 24.6 13.4" stroke="#c2521f" stroke-width="2.4"/>
+    <path d="M7.6 17.4 13.8 16.9" stroke="#2f6f6a" stroke-width="2" opacity="0.5"/>
+    <path d="M18.2 16.9 24.4 17.4" stroke="#2f6f6a" stroke-width="2" opacity="0.5"/>
+  </g>
+</svg>
