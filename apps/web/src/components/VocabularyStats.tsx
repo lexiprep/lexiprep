@@ -34,6 +34,31 @@ const GRANULARITIES: { value: Granularity; label: string }[] = [
 const ymd = (d: Date) => format(d, "yyyy-MM-dd");
 
 /**
+ * Classic legend toggling: clicking a legend entry hides/shows that series. Returns the
+ * hidden set plus the legend `onClick` + `formatter` (which greys out hidden entries).
+ */
+function useSeriesToggle() {
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const keyOf = (dataKey: unknown) =>
+    typeof dataKey === "string" || typeof dataKey === "number" ? String(dataKey) : "";
+  const onClick = (entry: { dataKey?: unknown }) => {
+    const key = keyOf(entry?.dataKey);
+    if (!key) return;
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  const formatter = (value: unknown, entry: { dataKey?: unknown }) => {
+    const off = hidden.has(keyOf(entry?.dataKey));
+    return <span style={{ opacity: off ? 0.4 : 1 }}>{String(value)}</span>;
+  };
+  return { hidden, onClick, formatter };
+}
+
+/**
  * The "Stats" view of the vocabulary page: vocabulary growth over a selectable date range,
  * grouped by day / week / month. Two charts — cumulative totals (Learning + Known) and
  * words added per period.
@@ -43,6 +68,8 @@ export function VocabularyStats() {
   const [from, setFrom] = useState<Date>(() => subDays(today, 89));
   const [to, setTo] = useState<Date>(today);
   const [granularity, setGranularity] = useState<Granularity>("day");
+  const totalToggle = useSeriesToggle();
+  const addedToggle = useSeriesToggle();
 
   const tsQ = useQuery({
     queryKey: ["vocab-timeseries", { from: ymd(from), to: ymd(to), granularity }],
@@ -115,7 +142,11 @@ export function VocabularyStats() {
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40} />
                 <Tooltip />
-                <Legend />
+                <Legend
+                  onClick={totalToggle.onClick}
+                  formatter={totalToggle.formatter}
+                  wrapperStyle={{ cursor: "pointer" }}
+                />
                 <Line
                   type="monotone"
                   dataKey="knownTotal"
@@ -123,6 +154,7 @@ export function VocabularyStats() {
                   stroke={KNOWN_COLOR}
                   strokeWidth={2}
                   dot={false}
+                  hide={totalToggle.hidden.has("knownTotal")}
                 />
                 <Line
                   type="monotone"
@@ -131,6 +163,7 @@ export function VocabularyStats() {
                   stroke={LEARNING_COLOR}
                   strokeWidth={2}
                   dot={false}
+                  hide={totalToggle.hidden.has("learningTotal")}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -145,13 +178,24 @@ export function VocabularyStats() {
                 <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40} />
                 <Tooltip />
-                <Legend />
-                <Bar dataKey="knownAdded" name="Known" fill={KNOWN_COLOR} radius={[3, 3, 0, 0]} />
+                <Legend
+                  onClick={addedToggle.onClick}
+                  formatter={addedToggle.formatter}
+                  wrapperStyle={{ cursor: "pointer" }}
+                />
+                <Bar
+                  dataKey="knownAdded"
+                  name="Known"
+                  fill={KNOWN_COLOR}
+                  radius={[3, 3, 0, 0]}
+                  hide={addedToggle.hidden.has("knownAdded")}
+                />
                 <Bar
                   dataKey="learningAdded"
                   name="Learning"
                   fill={LEARNING_COLOR}
                   radius={[3, 3, 0, 0]}
+                  hide={addedToggle.hidden.has("learningAdded")}
                 />
               </BarChart>
             </ResponsiveContainer>

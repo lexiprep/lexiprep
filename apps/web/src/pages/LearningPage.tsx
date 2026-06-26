@@ -18,7 +18,6 @@ import { LevelBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
 import { ExportModal } from "../components/ExportModal";
-import { VocabularyStats } from "../components/VocabularyStats";
 
 const LANG = "en";
 const PAGE_SIZES = [20, 50, 100];
@@ -47,8 +46,6 @@ const STATUS_TABS: { value: UserWordStatus; label: string }[] = [
   { value: "ignored", label: "Ignored" },
 ];
 
-type Tab = UserWordStatus | "stats";
-
 // Color + verb label per status (matches the badges / modal). Used for the inline "move
 // to" buttons, which always offer the two states a word is not currently in.
 const STATUS_META: Record<UserWordStatus, { label: string; cls: string }> = {
@@ -66,9 +63,7 @@ const ALL_STATUSES: UserWordStatus[] = ["learning", "known", "ignored"];
 export function LearningPage() {
   const qc = useQueryClient();
 
-  const [tab, setTab] = useState<Tab>("learning");
-  const isStats = tab === "stats";
-  const status: UserWordStatus = isStats ? "learning" : tab;
+  const [status, setStatus] = useState<UserWordStatus>("learning");
   const [pageSize, setPageSize] = useState(50);
   const [pageIndex, setPageIndex] = useState(0);
   const [bookId, setBookId] = useState("");
@@ -118,7 +113,6 @@ export function LearningPage() {
         sort,
         q: search || undefined,
       }),
-    enabled: !isStats,
     placeholderData: keepPreviousData,
   });
 
@@ -167,7 +161,7 @@ export function LearningPage() {
     <section>
       <div className="page-head">
         <h2>Vocabulary</h2>
-        {tab === "learning" && (
+        {status === "learning" && (
           <button
             className="btn primary push-right"
             onClick={() => setShowExport(true)}
@@ -184,10 +178,10 @@ export function LearningPage() {
           <button
             key={t.value}
             role="tab"
-            aria-selected={tab === t.value}
-            className={`tab${tab === t.value ? " active" : ""}`}
+            aria-selected={status === t.value}
+            className={`tab${status === t.value ? " active" : ""}`}
             onClick={() => {
-              setTab(t.value);
+              setStatus(t.value);
               resetView();
             }}
           >
@@ -195,20 +189,8 @@ export function LearningPage() {
             {counts && <span className="tab-count"> ({counts[t.value].toLocaleString()})</span>}
           </button>
         ))}
-        <button
-          role="tab"
-          aria-selected={isStats}
-          className={`tab${isStats ? " active" : ""}`}
-          onClick={() => setTab("stats")}
-        >
-          Stats
-        </button>
       </div>
 
-      {isStats && <VocabularyStats />}
-
-      {!isStats && (
-      <>
       <div className="toolbar">
         <label className="ctl">
           Book
@@ -392,8 +374,6 @@ export function LearningPage() {
           Next →
         </button>
       </div>
-      </>
-      )}
 
       {openWord && openWord.bookId && (
         <WordModal
