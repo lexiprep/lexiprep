@@ -1,0 +1,28 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# tooling caches / local artifacts
+.pnpm-store/
+.playwright-mcp/
+
+# local data / uploads
+/data/
+uploads/
+*.local
+
+# local test ebooks — never commit (often copyrighted)
+*.epub

@@ -1,0 +1,519 @@
+import { useMemo, useRef, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+} from "@tanstack/react-table";
+import {
+  finishBook,
+  getBook,
+  getBookWords,
+  setWordStatus,
+  type BookWordRow,
+  type UserWordStatus,
+} from "../lib/api";
+import { levelRangeLabel } from "../lib/levels";
+import { LevelBadge, StatusBadge } from "../components/badges";
+import { LevelRange } from "../components/LevelRange";
+import { WordModal } from "../components/WordModal";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+
+const PAGE_SIZES = [20, 50, 100];
+
+// Per-row triage buttons (replaces the old flag-as-new checkbox + batch actions).
+const TRIAGE: { status: UserWordStatus; label: string; cls: string }[] = [
+  { status: "learning", label: "Learning", cls: "blue" },
+  { status: "known", label: "Known", cls: "green" },
+  { status: "ignored", label: "Ignore", cls: "gray" },
+];
+
+export function BookPage() {
+  const { id = "" } = useParams();
+  const qc = useQueryClient();
+
+  const [pageSize, setPageSize] = useState(50);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "count", desc: true }]);
+  const [minLevel, setMinLevel] = useState("");
+  const [maxLevel, setMaxLevel] = useState("");
+  // "" = to review (untriaged, default); "all" / known / learning / ignored otherwise.
+  const [view, setView] = useState("");
+  // Words triaged within the current loaded batch — hidden locally so the batch shrinks
+  // as you work it, without pulling in new words (the user reviews a fixed batch).
+  const [triaged, setTriaged] = useState<Set<string>>(new Set());
+  const [openWord, setOpenWord] = useState<string | null>(null);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+
+  function resetView() {
+    setPageIndex(0);
+    setTriaged(new Set());
+  }
+
+  const bookQ = useQuery({
+    queryKey: ["book", id],
+    queryFn: () => getBook(id),
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "uploaded" || s === "processing" ? 1500 : false;
+    },
+  });
+  const book = bookQ.data;
+  const ready = book?.status === "ready";
+
+  const sortParam =
+    sorting.map((s) => `${s.id}:${s.desc ? "desc" : "asc"}`).join(",") || undefined;
+
+  const wordsQ = useQuery({
+    queryKey: ["words", id, { pageIndex, pageSize, sortParam, minLevel, maxLevel, view }],
+    queryFn: () =>
+      getBookWords(id, {
+        limit: pageSize,
+        offset: pageIndex * pageSize,
+        sort: sortParam,
+        minLevel: minLevel || undefined,
+        maxLevel: maxLevel || undefined,
+        status: view || undefined,
+      }),
+    enabled: ready,
+    placeholderData: keepPreviousData,
+  });
+  const rows = useMemo(() => wordsQ.data?.words ?? [], [wordsQ.data]);
+  const stats = wordsQ.data?.stats;
+  const hasMore = rows.length === pageSize;
+  const levelLabel = levelRangeLabel(minLevel, maxLevel);
+  // The batch minus words triaged this session — what's actually shown.
+  const visibleRows = useMemo(
+    () => rows.filter((r) => !triaged.has(r.word)),
+    [rows, triaged],
+  );
+  const batchDone = rows.length > 0 && visibleRows.length === 0;
+
+  // First review stage: unleveled words (names / rare words) must be triaged before
+  // moving on to the leveled review. "none/none" is the unleveled-only filter.
+  const junkRemaining = stats?.unleveled ?? 0;
+  const toReview = view === ""; // the default untriaged view
+  const inUnleveledView = minLevel === "none" && maxLevel === "none";
+  const showEnterGate = !!stats && toReview && junkRemaining > 0 && !inUnleveledView;
+  const showDoneGate = !!stats && toReview && inUnleveledView && junkRemaining === 0;
+
+  function enterUnleveled() {
+    setMinLevel("none");
+    setMaxLevel("none");
+    resetView();
+  }
+  function exitUnleveled() {
+    setMinLevel("");
+    setMaxLevel("");
+    resetView();
+  }
+
+  const markStatus = useMutation({
+    mutationFn: (v: { word: string; status: UserWordStatus }) =>
+      setWordStatus(v.word, v.status, book?.language ?? "en"),
+    onSuccess: () => {
+      // Refresh the header counts and the cross-book vocabulary list — but deliberately
+      // NOT ["words", id]: the loaded batch stays frozen so triaged words simply drop out
+      // and nothing new slides in mid-review.
+      qc.invalidateQueries({ queryKey: ["book", id] });
+      qc.invalidateQueries({ queryKey: ["review"] });
+    },
+  });
+  // Mark a word and remove it from the current batch locally (no refetch, no refill).
+  const markWord = (word: string, status: UserWordStatus) => {
+    setTriaged((prev) => new Set(prev).add(word));
+    markStatus.mutate({ word, status });
+  };
+  const markWordRef = useRef(markWord);
+  markWordRef.current = markWord;
+
+  const columns = useMemo<ColumnDef<BookWordRow>[]>(() => {
+    const cols: ColumnDef<BookWordRow>[] = [
+      {
+        accessorKey: "word",
+        header: "Word",
+        cell: ({ row }) => {
+          const w = row.original;
+          return (
+            <button
+              className="word-link"
+              title={`${w.count}× · ${w.level ?? "no level"}`}
+              onClick={() => setOpenWord(w.word)}
+            >
+              {w.word}
+            </button>
+          );
+        },
+      },
+      {
+        accessorKey: "level",
+        header: "Level",
+        cell: ({ row }) => <LevelBadge level={row.original.level} />,
+      },
+      {
+        accessorKey: "count",
+        header: "Count",
+        cell: ({ row }) => (
+          <span className="num">{row.original.count.toLocaleString()}</span>
+        ),
+      },
+    ];
+    if (view !== "") {
+      cols.push({
+        accessorKey: "status",
+        header: "Status",
+        enableSorting: false,
+        cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      });
+    }
+    // Per-row triage: one button per status, on the right where the eye lands after
+    // reading. The word's current status (if any) is shown active and disabled.
+    cols.push({
+      id: "triage",
+      header: "Triage",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const w = row.original;
+        return (
+          <span className="row-actions">
+            {TRIAGE.map((t) => {
+              const active = w.status === t.status;
+              return (
+                <button
+                  key={t.status}
+                  className={`btn ${t.cls} slim${active ? " active" : ""}`}
+                  disabled={active}
+                  onClick={() => markWordRef.current(w.word, t.status)}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </span>
+        );
+      },
+    });
+    return cols;
+  }, [view]);
+
+  const table = useReactTable({
+    data: visibleRows,
+    columns,
+    state: { sorting },
+    manualSorting: true,
+    enableMultiSort: true,
+    getRowId: (row) => row.word,
+    onSortingChange: (updater) => {
+      setSorting(updater);
+      resetView();
+    },
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  // Drop the frozen batch and pull a fresh one (used after "Finish book" and to advance
+  // to the next batch once the current one is fully triaged).
+  const reloadQueue = () => {
+    setTriaged(new Set());
+    setPageIndex(0);
+    qc.invalidateQueries({ queryKey: ["words", id] });
+    qc.invalidateQueries({ queryKey: ["book", id] });
+  };
+  const finish = useMutation({
+    mutationFn: () => finishBook(id),
+    onSuccess: () => {
+      reloadQueue();
+      setConfirmFinish(false);
+    },
+  });
+
+  return (
+    <section>
+      <div className="page-head">
+        <Link to="/" className="linkbtn">
+          ← Books
+        </Link>
+        <span className="grow" />
+        {ready && (
+          <button className="btn ghost slim" onClick={() => setConfirmFinish(true)}>
+            Finish book
+          </button>
+        )}
+      </div>
+
+      {bookQ.isLoading ? (
+        <p className="muted">Loading…</p>
+      ) : !book ? (
+        <p className="error">Book not found.</p>
+      ) : (
+        <>
+          <div className="book-header">
+            <h2>{book.title}</h2>
+            {book.author && <p className="muted">{book.author}</p>}
+            <p className="muted small book-sub">
+              {book.status !== "ready" ? (
+                <span className="pill amber">{book.status}</span>
+              ) : (
+                <>
+                  <span>{book.chapterCount ?? "—"} chapters</span>
+                  {stats && (
+                    <>
+                      <span>
+                        <strong>{stats.remaining.toLocaleString()}</strong> to review
+                      </span>
+                      <span>{stats.total.toLocaleString()} words in book</span>
+                      {book.reviewedAt && <span className="pill green">reviewed</span>}
+                    </>
+                  )}
+                </>
+              )}
+            </p>
+          </div>
+
+          {book.status === "failed" && (
+            <p className="error">Processing failed: {book.error}</p>
+          )}
+          {(book.status === "uploaded" || book.status === "processing") && (
+            <p className="muted">Analyzing the book… this updates automatically.</p>
+          )}
+
+          {ready && (
+            <div className="toolbar">
+              <label className="ctl">
+                Show
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    resetView();
+                  }}
+                >
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+                per batch
+              </label>
+
+              <LevelRange
+                from={minLevel}
+                to={maxLevel}
+                onChange={({ from, to }) => {
+                  setMinLevel(from);
+                  setMaxLevel(to);
+                  resetView();
+                }}
+              />
+
+              <label className="ctl">
+                View
+                <select
+                  value={view}
+                  onChange={(e) => {
+                    setView(e.target.value);
+                    resetView();
+                  }}
+                >
+                  <option value="">To review</option>
+                  <option value="all">All words</option>
+                  <option value="known">Known</option>
+                  <option value="learning">Learning</option>
+                  <option value="ignored">Ignored</option>
+                </select>
+              </label>
+
+              <span className="grow" />
+              <span className="muted small hint">Shift-click headers to multi-sort</span>
+            </div>
+          )}
+
+          {ready && showEnterGate && (
+            <div className="card gate">
+              <h3>First, clear out the junk</h3>
+              <p className="muted">
+                <strong>{junkRemaining.toLocaleString()}</strong> words have no CEFR
+                level — usually names (“Odysseus”, “Athena”) and rare or uncommon words.
+                Triage these first: mark anything worth studying as <em>Learning</em> and{" "}
+                <em>Ignore</em> the rest. Or switch <em>View</em> to “All words”.
+              </p>
+              <button className="btn primary" onClick={enterUnleveled}>
+                Review {junkRemaining.toLocaleString()} unleveled words →
+              </button>
+            </div>
+          )}
+
+          {ready && showDoneGate && (
+            <div className="card gate">
+              <h3>Junk cleared ✓</h3>
+              <p className="muted">
+                All unleveled words are triaged. On to the leveled vocabulary.
+              </p>
+              <button className="btn primary" onClick={exitUnleveled}>
+                Continue to the leveled review →
+              </button>
+            </div>
+          )}
+
+          {ready && !showEnterGate && !showDoneGate && (
+            <>
+              {junkRemaining > 0 && inUnleveledView && toReview && (
+                <p className="gate-banner">
+                  Stage 1 · <strong>{junkRemaining.toLocaleString()}</strong> unleveled
+                  words left. Mark anything worth studying; ignore the rest.
+                </p>
+              )}
+
+              {stats && (
+                <p className="stats-line muted small">
+                  <strong>{visibleRows.length.toLocaleString()}</strong>
+                  {levelLabel ? ` ${levelLabel} ` : " "}
+                  {view === "" ? "words" : view === "all" ? "words (all)" : `${view} words`}
+                  {" left in this batch"}
+                  {toReview && ` · ${stats.remaining.toLocaleString()} to review in book`}
+                </p>
+              )}
+
+              <div className="table-wrap">
+                <table className="words">
+                  <thead>
+                    {table.getHeaderGroups().map((hg) => (
+                      <tr key={hg.id}>
+                        {hg.headers.map((header) => {
+                          const sorted = header.column.getIsSorted();
+                          const canSort = header.column.getCanSort();
+                          const multi = sorting.length > 1;
+                          const align =
+                            header.column.id === "count"
+                              ? "right"
+                              : header.column.id === "triage"
+                                ? "right"
+                                : "";
+                          return (
+                            <th
+                              key={header.id}
+                              className={[align, canSort ? "sortable" : ""]
+                                .join(" ")
+                                .trim()}
+                              onClick={
+                                canSort ? header.column.getToggleSortingHandler() : undefined
+                              }
+                            >
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )}
+                              {sorted && (
+                                <span className="sort-ind">
+                                  {sorted === "asc" ? " ▲" : " ▼"}
+                                  {multi && <sup>{header.column.getSortIndex() + 1}</sup>}
+                                </span>
+                              )}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </thead>
+                  <tbody>
+                    {table.getRowModel().rows.map((row) => (
+                      <tr key={row.id}>
+                        {row.getVisibleCells().map((cell) => {
+                          const align =
+                            cell.column.id === "count"
+                              ? "right"
+                              : cell.column.id === "triage"
+                                ? "right"
+                                : "";
+                          return (
+                            <td key={cell.id} className={align}>
+                              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {visibleRows.length === 0 &&
+                  (batchDone ? (
+                    <div className="empty batch-done">
+                      <p className="muted">Batch triaged — nice work.</p>
+                      <button className="btn primary" onClick={reloadQueue}>
+                        Load next batch →
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="muted empty">
+                      {!toReview
+                        ? "No words match this view."
+                        : levelLabel
+                          ? `No untriaged ${levelLabel} words.`
+                          : "No words left in the queue — this book is fully triaged."}
+                    </p>
+                  ))}
+              </div>
+
+              {/* Browse other batches; triaging happens per-row, in place. */}
+              <div className="review-bar">
+                <div className="pager">
+                  <button
+                    className="btn ghost"
+                    disabled={pageIndex === 0}
+                    onClick={() => {
+                      setPageIndex((p) => Math.max(0, p - 1));
+                      setTriaged(new Set());
+                    }}
+                  >
+                    ← Prev
+                  </button>
+                  <span className="muted small">Batch {pageIndex + 1}</span>
+                  <button
+                    className="btn ghost"
+                    disabled={!hasMore}
+                    onClick={() => {
+                      setPageIndex((p) => p + 1);
+                      setTriaged(new Set());
+                    }}
+                  >
+                    Next →
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {confirmFinish && (
+        <ConfirmDialog
+          title="Finish this book?"
+          message="Every remaining untriaged word is marked as known. Use this only when you've worked through the words you care about."
+          confirmLabel="Finish book"
+          danger
+          busy={finish.isPending}
+          onConfirm={() => finish.mutate()}
+          onCancel={() => setConfirmFinish(false)}
+        />
+      )}
+
+      {openWord && book && (
+        <WordModal
+          bookId={id}
+          word={openWord}
+          language={book.language}
+          onClose={() => setOpenWord(null)}
+        />
+      )}
+    </section>
+  );
+}

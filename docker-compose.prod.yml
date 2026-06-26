@@ -1,0 +1,95 @@
+# Production stack for self-hosting (internal / small group). See `make help` and the
+# "Deploy" section of the README. Differs from the dev compose (docker-compose.yml):
+#   - prod image targets, NODE_ENV=production
+#   - deps live in persisted volumes populated once by `make install` — a deploy never
+#     reinstalls node_modules (only `make install` does, when the lockfile changes)
+#   - source is bind-mounted, so `git pull` + a quick restart is the whole update
+#   - only the web port is published; the API is reached through web's /api proxy
+#
+# Required secrets in .env (see .env.example): POSTGRES_PASSWORD, BETTER_AUTH_SECRET,
+# BETTER_AUTH_URL, WEB_ORIGIN.
+name: lexiprep-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lexiprep}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-lexiprep}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lexiprep}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+      target: prod
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER:-lexiprep}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-lexiprep}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5173}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+    working_dir: /workspace/lexiprep/apps/server
+    # Deps come from the persisted volumes (populated by `make install`) — no reinstall on
+    # deploy. Build the linked core, then start the server.
+    command: sh -c "pnpm --filter @lexiprep/core build && pnpm --filter @lexiprep/server start"
+    volumes:
+      - ./:/workspace/lexiprep
+      - ../lexiprep-core:/workspace/lexiprep-core
+      - nm_root:/workspace/lexiprep/node_modules
+      - nm_server:/workspace/lexiprep/apps/server/node_modules
+      - nm_web:/workspace/lexiprep/apps/web/node_modules
+      - nm_core:/workspace/lexiprep-core/node_modules
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: prod
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      PROXY_TARGET: http://server:3000
+    working_dir: /workspace/lexiprep/apps/web
+    volumes:
+      - ./:/workspace/lexiprep
+      - ../lexiprep-core:/workspace/lexiprep-core
+      - nm_root:/workspace/lexiprep/node_modules
+      - nm_server:/workspace/lexiprep/apps/server/node_modules
+      - nm_web:/workspace/lexiprep/apps/web/node_modules
+      - nm_core:/workspace/lexiprep-core/node_modules
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+
+volumes:
+  pgdata:
+  nm_root:
+  nm_server:
+  nm_web:
+  nm_core:

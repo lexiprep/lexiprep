@@ -1,0 +1,81 @@
+# lexiprep
+
+Pre-reading vocabulary preparation for ebooks. Upload a book, get its vocabulary
+**sorted by frequency**, with the words you already know hidden, basic stopwords
+filtered out, definitions and in-context examples attached — so you can learn the
+most useful words *before* you start reading.
+
+Think LingQ, but front-loaded: instead of looking words up while you read, you
+prep the high-value vocabulary first, then read more fluently.
+
+> Status: early development. Working name — easily renamed before first release.
+
+## Why
+
+For intermediate/advanced learners, most of a book's *unique* words are either
+already known or too basic to bother with. The valuable signal is the handful of
+genuinely new words you'll meet often. lexiprep surfaces exactly those:
+
+- **Frequency-first.** Most-used unknown words rise to the top — learn what pays off.
+- **Known-words aware.** Mark words you know once; never see them again across books.
+- **Level filter.** Hide words below your CEFR level; focus on your growth edge.
+- **Stopword filter.** `the`, `a`, `on`, `this` never waste your time.
+- **Context + definitions.** Each word with its definition and example sentences from the book.
+- **Export.** Send to Anki, or review in-app.
+
+English first; the pipeline is built to extend to Spanish and other languages.
+
+## Architecture
+
+Two repos:
+
+| Repo | What it is |
+|---|---|
+| [`lexiprep-core`](https://github.com/ORG/lexiprep-core) (`@lexiprep/core`, MIT) | Reusable, framework-agnostic pipeline: EPUB → clean text → tokens → frequency list. Pure TypeScript, fully tested, no server/DB deps. **Built.** |
+| `lexiprep` *(this repo, AGPL)* | The app: `apps/server` (Fastify, Postgres + Drizzle, `pg-boss` jobs, multi-user auth) and `apps/web` (React + Vite). Consumes `@lexiprep/core`. **Working.** |
+
+The extraction engine is its own open-source library so it can power this app, a CLI,
+other projects, or run client-side. **It was built first.**
+
+See [`docs/specs/`](./docs/specs/) for the full specification.
+
+## Run
+
+```bash
+cp .env.example .env
+make up        # Postgres + server + web in Docker (migrations run on start)
+# web → http://localhost:5173   ·   server → http://localhost:3000/health
+make down      # stop
+make test      # tests (optional: make test filter=<name>)
+```
+
+Host dev without Docker also works (`pnpm install && pnpm -r dev`); start Postgres
+yourself or point `DATABASE_URL` at one. After `make up`, run `make dict-update` once to
+load the offline dictionary.
+
+> Clone `lexiprep-core` as a sibling directory — the app links it (`../lexiprep-core`).
+
+## Deploy (self-host)
+
+A separate production stack (`docker-compose.prod.yml`) keeps node_modules in volumes, so
+deploys don't reinstall. Set strong secrets in `.env` (`POSTGRES_PASSWORD`,
+`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `WEB_ORIGIN`), then:
+
+```bash
+make install   # once, and whenever the lockfile changes — populates the deps volumes
+make deploy    # CI/CD: git pull → rebuild → swap (minimal downtime) → migrate
+```
+
+`make prod-up` / `prod-down` / `prod-logs` manage the stack; `make migrate` applies schema
+changes; `make prod-dict` refreshes the dictionary. See [`docs/specs/08-deployment.md`](./docs/specs/08-deployment.md).
+
+## Status
+
+Working end to end: upload an EPUB → background extraction (frequency, lemmatization, CEFR
+levels, context examples, proper-noun detection) → frequency-sorted review with per-user
+known/learning/ignored vocabulary, definitions, and **Anki export**. Multi-user, Postgres,
+self-hostable. Per-feature design records in [`docs/specs/`](./docs/specs/).
+
+## License
+
+AGPL-3.0-or-later — open source; self-host for yourself, your family, or a group.
