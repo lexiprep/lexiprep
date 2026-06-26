@@ -400,9 +400,13 @@ export function BookPage() {
                           return (
                             <th
                               key={header.id}
-                              className={[align, canSort ? "sortable" : ""]
-                                .join(" ")
-                                .trim()}
+                              className={[
+                                `col-${header.column.id}`,
+                                align,
+                                canSort ? "sortable" : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" ")}
                               onClick={
                                 canSort ? header.column.getToggleSortingHandler() : undefined
                               }
@@ -434,7 +438,12 @@ export function BookPage() {
                                 ? "right"
                                 : "";
                           return (
-                            <td key={cell.id} className={align}>
+                            <td
+                              key={cell.id}
+                              className={[`col-${cell.column.id}`, align]
+                                .filter(Boolean)
+                                .join(" ")}
+                            >
                               {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </td>
                           );

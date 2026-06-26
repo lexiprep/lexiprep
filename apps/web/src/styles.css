@@ -636,12 +636,56 @@ table.words td.center {
   .book-header h2 {
     font-size: 21px;
   }
+  /* Each word becomes a stacked card: word + level + count on top, the triage
+     buttons on their own full-width row below — bigger tap targets for quick
+     sorting on a phone. The header stays a compact tap-to-sort bar. */
   .table-wrap {
-    overflow-x: auto;
+    overflow-x: visible;
   }
-  table.words th,
-  table.words td {
-    padding: 9px 10px;
+  /* Header only needs the three sortable columns; triage/status labels are noise. */
+  table.words th.col-triage,
+  table.words th.col-status {
+    display: none;
+  }
+  /* Shared track sizes keep the header bar aligned with the cards below it. */
+  table.words thead tr,
+  table.words tbody tr {
+    display: grid;
+    grid-template-columns: 1fr 52px 64px;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 10px;
+  }
+  table.words thead th {
+    padding: 9px 14px;
+  }
+  table.words tbody tr {
+    padding: 11px 14px;
+  }
+  table.words tbody td {
+    padding: 0;
+    border-bottom: none;
+  }
+  .col-word .word-link {
+    font-size: 16px;
+  }
+  table.words td.col-count {
+    text-align: right;
+  }
+  /* Status badge (non-default views) and the triage buttons each take a full
+     line under the word. */
+  table.words td.col-status,
+  table.words td.col-triage {
+    grid-column: 1 / -1;
+  }
+  .col-triage .row-actions {
+    display: flex;
+    justify-content: stretch;
+    gap: 8px;
+  }
+  .col-triage .row-actions .btn {
+    flex: 1;
+    padding: 10px 8px;
   }
   .review-bar {
     flex-direction: column;
