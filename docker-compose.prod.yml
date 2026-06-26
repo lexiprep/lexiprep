@@ -92,9 +92,12 @@ services:
       - web
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    # Host 80/443 are owned by clara-nginx-proxy on this server, so publish caddy on
+    # 8080/8443 instead (caddy still listens on container :80/:443). Reach the app at
+    # http://SERVER_IP:8080. The only change needed to coexist on this shared prod host.
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
+      - "8443:443"
     volumes:
       - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
