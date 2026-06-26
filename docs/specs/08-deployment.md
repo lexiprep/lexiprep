@@ -22,8 +22,10 @@ A dedicated **`docker-compose.prod.yml`** (separate from the dev `docker-compose
   restarts.
 - **node_modules in named volumes** (`nm_root`, `nm_server`, `nm_web`) — a deploy reuses them;
   `make install` is the only thing that runs `pnpm install`.
-- **Only the web port is published**; the API is reached through web's `/api` proxy
-  (`vite preview` proxies `/api` + `/health` to `server:3000`, same single-origin as dev).
+- **Caddy is the single public entry** (`:80`, `:443`), reverse-proxying to `web:5173` over the
+  compose network; `web`/`server`/`db` publish no host ports. Inside, the browser hits one
+  origin and `web` (`vite preview`) proxies `/api` + `/health` to `server:3000` — same
+  single-origin as dev.
 - **db** is internal (no published port), data in the `pgdata` volume, `restart: unless-stopped`.
 
 ## Commands (Makefile)
@@ -75,8 +77,11 @@ per day); add an rclone-delete retention step if it ever matters. `monthly/` is 
   for additive changes; a destructive change would prompt and should be applied by hand.
   Moving to generated migrations (`drizzle-kit generate` + `migrate`) is the eventual path.
 - **"Minimal" not zero downtime.** `--force-recreate` stops-then-starts the server/web
-  containers; the gap is the core build + boot (seconds). True zero-downtime (baked images
-  behind a reverse proxy / rolling update) is a future option — the bind-mount + deps-volume
-  design was chosen for simplicity and the "git pull updates code" mental model.
-- **TLS / public exposure** is out of scope here — put a reverse proxy (Caddy/nginx) in front
-  for HTTPS when exposing beyond localhost/LAN.
+  containers; the gap is the boot (seconds). Caddy keeps running across a deploy (it's not
+  recreated) and retries the upstream, so the public endpoint just 502s briefly during the
+  swap rather than dropping. True zero-downtime (baked images / rolling update) is a future
+  option — the bind-mount + deps-volume design was chosen for simplicity.
+- **TLS via Caddy.** `SITE_ADDRESS` (`.env`, default `:80`) sets the entry: a bare `:80` for
+  IP/LAN today (no cert possible without a hostname), or a domain for automatic Let's Encrypt
+  HTTPS on `:443` — then `BETTER_AUTH_URL`/`WEB_ORIGIN` move to the `https://` domain. Caddy's
+  certs/state persist in the `caddy_data` volume.
