@@ -17,8 +17,8 @@ importers:
         specifier: ^10.0.0
         version: 10.0.0
       '@lexiprep/core':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.4.0
+        version: 0.4.0
       better-auth:
         specifier: ^1.6.20
         version: 1.6.20(drizzle-kit@0.31.10)(drizzle-orm@0.45.2(@electric-sql/pglite@0.5.3)(kysely@0.29.2)(pg@8.22.0)(postgres@3.4.9))(pg@8.22.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(vitest@4.1.9(@types/node@26.0.1)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.0(@types/node@26.0.1)(esbuild@0.28.1)(tsx@4.22.4)))
@@ -781,8 +781,8 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
-  '@lexiprep/core@0.3.0':
-    resolution: {integrity: sha512-+bZDFT/G8zYpzkGeEbe0engVSJKU7BD2DvtCUtcwM4Yh6Z2kjfIUHydH0c18v8f+4FMX1v3UXAqteRPTK3oOOg==}
+  '@lexiprep/core@0.4.0':
+    resolution: {integrity: sha512-Pe8gtA93OpwU8MC7iyKSAMaVOGnB5vSpDzijr9kavJA9xn0FLnq274z0wDWUe3DYsYWZmuglyMWO0xV5BShgMQ==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -2484,7 +2484,7 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
-  '@lexiprep/core@0.3.0':
+  '@lexiprep/core@0.4.0':
     dependencies:
       fast-xml-parser: 5.9.3
       jszip: 3.10.1
