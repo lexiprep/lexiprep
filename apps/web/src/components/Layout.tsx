@@ -20,6 +20,9 @@ export function Layout() {
           <NavLink to="/learning" className={navClass}>
             Vocabulary
           </NavLink>
+          <NavLink to="/stats" className={navClass}>
+            Stats
+          </NavLink>
         </nav>
         <div className="grow" />
         {data?.user?.email && <span className="muted small">{data.user.email}</span>}
