@@ -1,0 +1,90 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { WordModal } from "../src/components/WordModal";
+import * as api from "../src/lib/api";
+import type { WordDetail } from "../src/lib/api";
+
+vi.mock("../src/lib/api", () => ({
+  getWordDetail: vi.fn(),
+  setWordStatus: vi.fn(),
+  clearWordStatus: vi.fn(),
+  setWordNote: vi.fn(),
+  deleteWordNote: vi.fn(),
+}));
+
+const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
+  word: "ocean",
+  lemma: "ocean",
+  count: 8,
+  level: "B1",
+  example: "the deep ocean",
+  status: null,
+  forms: [{ word: "ocean", count: 8, example: null }],
+  definition: [{ pos: "noun", gloss: "a large body of salt water" }],
+  note: null,
+  ...over,
+});
+
+function renderModal() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  );
+  return render(
+    <WordModal bookId="book-1" word="ocean" language="en" onClose={vi.fn()} />,
+    { wrapper },
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks(); // module-level mocks retain call history across tests otherwise
+  vi.mocked(api.setWordStatus).mockResolvedValue({ ok: true, count: 1 });
+  vi.mocked(api.clearWordStatus).mockResolvedValue({ ok: true });
+  vi.mocked(api.setWordNote).mockResolvedValue({ ok: true });
+});
+
+describe("WordModal", () => {
+  it("renders the word, level, example and definition", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail());
+    renderModal();
+
+    expect(await screen.findByRole("heading", { name: "ocean" })).toBeInTheDocument();
+    expect(screen.getByText("B1")).toBeInTheDocument();
+    expect(screen.getByText("a large body of salt water")).toBeInTheDocument();
+    expect(screen.getByText(/the deep ocean/)).toBeInTheDocument();
+  });
+
+  it("marks a word as learning when its status is unset", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: null }));
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Learning" }));
+    await waitFor(() =>
+      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "learning", "en"),
+    );
+  });
+
+  it("clears the status when the active button is clicked again (toggle off)", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: "learning" }));
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "✓ Learning" }));
+    await waitFor(() => expect(api.clearWordStatus).toHaveBeenCalledWith("ocean", "en"));
+    expect(api.setWordStatus).not.toHaveBeenCalled();
+  });
+
+  it("saves a per-book note", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ note: null }));
+    renderModal();
+
+    const textarea = await screen.findByPlaceholderText(/Add a meaning/i);
+    fireEvent.change(textarea, { target: { value: "god of the sea here" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+
+    await waitFor(() =>
+      expect(api.setWordNote).toHaveBeenCalledWith("book-1", "ocean", "god of the sea here"),
+    );
+  });
+});
