@@ -42,9 +42,12 @@ make build   # build images
 make test    # run all tests; optional: make test filter=<name>
 ```
 
-The Docker dev setup mounts the sibling `../lexiprep-core` at a mirrored path so the
-`link:` dependency resolves in-container; installs use `--frozen-lockfile` (the lockfile
-must be committed). Host dev without Docker also works: `pnpm install && pnpm -r dev`.
+`@lexiprep/core` is consumed as a published **npm dependency** (`^0.1.0`), so no sibling
+checkout is needed in dev or prod; installs use `--frozen-lockfile` (the lockfile must be
+committed). To hack on the engine locally, `pnpm link` a `lexiprep-core` checkout. Host dev
+without Docker also works: `pnpm install && pnpm -r dev`. Releasing core: bump its version,
+push a `vX.Y.Z` tag → the release workflow publishes to npm via OIDC; then bump the app's
+`@lexiprep/core` range.
 
 ## Status
 

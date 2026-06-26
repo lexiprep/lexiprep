@@ -16,10 +16,12 @@ Not a managed multi-region setup — that's a later concern; the architecture do
 A dedicated **`docker-compose.prod.yml`** (separate from the dev `docker-compose.yml`):
 
 - **prod image targets** (`apps/{server,web}/Dockerfile` → `prod`), `NODE_ENV=production`.
-- **Source is bind-mounted** (`./` and the sibling `../lexiprep-core`), so `git pull` on the
-  host updates the code; a deploy just rebuilds the linked core and restarts.
-- **node_modules in named volumes** (`nm_root`, `nm_server`, `nm_web`, `nm_core`) — a deploy
-  reuses them; `make install` is the only thing that runs `pnpm install`.
+- **Single repo.** `@lexiprep/core` is a published **npm dependency** (`^0.1.0`), so prod only
+  checks out this repo — no sibling `lexiprep-core` and no in-container core build.
+- **Source is bind-mounted** (`./`), so `git pull` on the host updates the code; a deploy just
+  restarts.
+- **node_modules in named volumes** (`nm_root`, `nm_server`, `nm_web`) — a deploy reuses them;
+  `make install` is the only thing that runs `pnpm install`.
 - **Only the web port is published**; the API is reached through web's `/api` proxy
   (`vite preview` proxies `/api` + `/health` to `server:3000`, same single-origin as dev).
 - **db** is internal (no published port), data in the `pgdata` volume, `restart: unless-stopped`.

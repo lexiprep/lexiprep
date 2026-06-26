@@ -53,7 +53,9 @@ Host dev without Docker also works (`pnpm install && pnpm -r dev`); start Postgr
 yourself or point `DATABASE_URL` at one. After `make up`, run `make dict-update` once to
 load the offline dictionary.
 
-> Clone `lexiprep-core` as a sibling directory — the app links it (`../lexiprep-core`).
+> The app consumes [`@lexiprep/core`](https://www.npmjs.com/package/@lexiprep/core) from npm —
+> no sibling checkout needed. To hack on the engine locally, `pnpm link` a
+> [`lexiprep-core`](https://github.com/lexiprep/lexiprep-core) checkout.
 
 ## Deploy (self-host)
 

@@ -36,12 +36,11 @@ services:
     working_dir: /workspace/lexiprep/apps/server
     # node_modules live in named volumes (not the host's, which is built against a
     # different pnpm store). The server is the sole installer; it populates the
-    # shared apps/web volume too, so web just runs vite. The sibling lexiprep-core
-    # is mounted at its mirrored path so `link:../../../lexiprep-core` resolves.
+    # shared apps/web volume too, so web just runs vite. @lexiprep/core comes from
+    # npm, so no sibling checkout is needed.
     command: sh -c "pnpm install --frozen-lockfile && pnpm db:push && pnpm db:seed && pnpm dev"
     volumes:
       - ./:/workspace/lexiprep
-      - ../lexiprep-core:/workspace/lexiprep-core
       - nm_root:/workspace/lexiprep/node_modules
       - nm_server:/workspace/lexiprep/apps/server/node_modules
       - nm_web:/workspace/lexiprep/apps/web/node_modules
@@ -75,7 +74,6 @@ services:
     command: sh -c "pnpm dev"
     volumes:
       - ./:/workspace/lexiprep
-      - ../lexiprep-core:/workspace/lexiprep-core
       - nm_root:/workspace/lexiprep/node_modules
       - nm_server:/workspace/lexiprep/apps/server/node_modules
       - nm_web:/workspace/lexiprep/apps/web/node_modules

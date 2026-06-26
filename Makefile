@@ -31,7 +31,6 @@ PROD := docker compose -f docker-compose.prod.yml
 install: ## [prod] Install/update node_modules into the persisted volumes (run when the lockfile changes)
 	$(PROD) build
 	$(PROD) run --rm --no-deps server pnpm install --frozen-lockfile
-	$(PROD) run --rm --no-deps -w /workspace/lexiprep-core server pnpm install --frozen-lockfile
 
 migrate: ## [prod] Apply schema changes to the database (drizzle-kit push)
 	$(PROD) run --rm server pnpm db:push

@@ -44,15 +44,13 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
     working_dir: /workspace/lexiprep/apps/server
     # Deps come from the persisted volumes (populated by `make install`) — no reinstall on
-    # deploy. Build the linked core, then start the server.
-    command: sh -c "pnpm --filter @lexiprep/core build && pnpm --filter @lexiprep/server start"
+    # deploy. @lexiprep/core is an npm dependency, so just start the server.
+    command: pnpm --filter @lexiprep/server start
     volumes:
       - ./:/workspace/lexiprep
-      - ../lexiprep-core:/workspace/lexiprep-core
       - nm_root:/workspace/lexiprep/node_modules
       - nm_server:/workspace/lexiprep/apps/server/node_modules
       - nm_web:/workspace/lexiprep/apps/web/node_modules
-      - nm_core:/workspace/lexiprep-core/node_modules
     healthcheck:
       test:
         [
@@ -79,11 +77,9 @@ services:
     working_dir: /workspace/lexiprep/apps/web
     volumes:
       - ./:/workspace/lexiprep
-      - ../lexiprep-core:/workspace/lexiprep-core
       - nm_root:/workspace/lexiprep/node_modules
       - nm_server:/workspace/lexiprep/apps/server/node_modules
       - nm_web:/workspace/lexiprep/apps/web/node_modules
-      - nm_core:/workspace/lexiprep-core/node_modules
     ports:
       - "${WEB_PORT:-5173}:5173"
 
@@ -119,4 +115,3 @@ volumes:
   nm_root:
   nm_server:
   nm_web:
-  nm_core:
