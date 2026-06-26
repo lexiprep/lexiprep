@@ -122,6 +122,28 @@ export async function createBook(userId: string, input: UploadInput): Promise<Bo
   });
 }
 
+/**
+ * Re-run extraction for an existing book with the currently installed @lexiprep/core.
+ * The stored file is reused and {@link processBook} rebuilds `book_words` idempotently;
+ * the user's triage (`user_words`) and notes (`word_notes`) are keyed separately and are
+ * left untouched. Flips status to "processing" immediately so the UI reflects it before
+ * the worker picks the job up. Returns the updated book, or null if it isn't the user's
+ * (so the route can 404 without leaking existence). Enqueuing the job stays in the route.
+ */
+export async function reprocessBook(
+  userId: string,
+  bookId: string,
+): Promise<Book | null> {
+  const book = await getBook(userId, bookId);
+  if (!book) return null;
+  const [updated] = await db
+    .update(books)
+    .set({ status: "processing", error: null })
+    .where(and(eq(books.id, bookId), eq(books.userId, userId)))
+    .returning();
+  return updated ?? null;
+}
+
 export function listBooks(userId: string): Promise<Book[]> {
   return db
     .select()

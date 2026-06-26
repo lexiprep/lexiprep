@@ -106,6 +106,16 @@ describe("processBook", () => {
     expect(updated!.error).toBeTruthy();
   });
 
+  it("marks the book failed (not stuck on processing) when no file is stored", async () => {
+    const book = await createBook(userId, { status: "processing" });
+
+    await processBook(book.id, logger);
+
+    const [updated] = await db.select().from(books).where(eq(books.id, book.id));
+    expect(updated!.status).toBe("failed");
+    expect(updated!.error).toBeTruthy();
+  });
+
   it("is idempotent — re-running replaces prior words", async () => {
     const book = await createBook(userId, { status: "uploaded" });
     await addBookFile(book.id, await makeEpub("<p>The fox ran fast.</p>"));
