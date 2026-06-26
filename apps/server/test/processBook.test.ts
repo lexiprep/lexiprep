@@ -5,6 +5,7 @@ import { db, schema } from "../src/db/client.js";
 import { processBook } from "../src/queue/processBook.js";
 import { addBookFile, addWordLevel, createBook, createUser } from "./helpers/db.js";
 import { makeEpub } from "./helpers/epub.js";
+import { makePdf } from "./helpers/pdf.js";
 
 const { books, bookWords, userWords } = schema;
 
@@ -50,6 +51,21 @@ describe("processBook", () => {
     expect(fox).toMatchObject({ count: 2, lemma: "fox", level: "A1" });
     const dog = await wordRow(book.id, "dog");
     expect(dog!.level).toBe("A2");
+  });
+
+  it("parses a PDF (one section per page), persists words, and enriches levels", async () => {
+    const book = await createBook(userId, { status: "uploaded" });
+    await addBookFile(book.id, await makePdf("The fox ran. The dog and the fox played together."));
+
+    await processBook(book.id, logger);
+
+    const [updated] = await db.select().from(books).where(eq(books.id, book.id));
+    expect(updated!.status).toBe("ready");
+    expect(updated!.chapterCount).toBe(1); // a single-page PDF -> one section
+    expect(updated!.tokenCount).toBeGreaterThan(0);
+
+    const fox = await wordRow(book.id, "fox");
+    expect(fox).toMatchObject({ count: 2, lemma: "fox", level: "A1" });
   });
 
   it("auto-ignores a confirmed proper noun that has no vetted CEFR level", async () => {

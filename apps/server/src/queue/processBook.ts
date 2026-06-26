@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { readEpub, analyzeBook, ENGLISH_STOPWORDS } from "@lexiprep/core";
+import { readEpub, readPdf, analyzeBook, ENGLISH_STOPWORDS } from "@lexiprep/core";
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "../db/client.js";
 import { books, bookFiles, bookWords } from "../db/schema.js";
@@ -12,8 +12,25 @@ function baseLanguage(lang: string | undefined): string {
 }
 
 /**
- * Background job: load the stored EPUB, extract the frequency list via
- * @lexiprep/core, and persist book_words. Idempotent (clears prior words).
+ * Pick the reader by content, not filename: PDFs start with "%PDF-", EPUBs are
+ * zips. Compares raw bytes so it works whether the driver hands back a Node
+ * Buffer (postgres.js) or a plain Uint8Array (pglite in tests).
+ */
+function isPdf(data: Uint8Array): boolean {
+  // "%PDF-" = 0x25 0x50 0x44 0x46 0x2d
+  return (
+    data.length >= 5 &&
+    data[0] === 0x25 &&
+    data[1] === 0x50 &&
+    data[2] === 0x44 &&
+    data[3] === 0x46 &&
+    data[4] === 0x2d
+  );
+}
+
+/**
+ * Background job: load the stored book (EPUB or PDF), extract the frequency list
+ * via @lexiprep/core, and persist book_words. Idempotent (clears prior words).
  */
 export async function processBook(
   bookId: string,
@@ -35,7 +52,7 @@ export async function processBook(
     .where(eq(books.id, bookId));
 
   try {
-    const parsed = await readEpub(file.data);
+    const parsed = isPdf(file.data) ? await readPdf(file.data) : await readEpub(file.data);
     // lemmatize: group conjugations under a base form (used for level lookup + grouping)
     // detectProperNouns: flag names from mid-sentence capitalization (spec 06)
     // captureExamples: first-occurrence context sentence per word (spec 03) — every word
@@ -102,7 +119,7 @@ export async function processBook(
           author: parsed.metadata.author ?? null,
           language: lang,
           identifier: parsed.metadata.identifier ?? null,
-          chapterCount: analysis.chapterCount,
+          chapterCount: analysis.sectionCount,
           tokenCount: analysis.totalTokens,
           error: null,
         })

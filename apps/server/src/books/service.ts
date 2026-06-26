@@ -94,7 +94,7 @@ export interface UploadInput {
 }
 
 function titleFromFilename(filename: string): string {
-  return filename.replace(/\.epub$/i, "").trim() || filename;
+  return filename.replace(/\.(epub|pdf)$/i, "").trim() || filename;
 }
 
 /** Persist an uploaded book + its bytes (one transaction). Status starts `uploaded`. */

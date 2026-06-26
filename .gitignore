@@ -24,5 +24,7 @@ coverage/
 uploads/
 *.local
 
-# local test ebooks — never commit (often copyrighted)
+# local test ebooks / sample books — never commit (often copyrighted)
 *.epub
+*.pdf
+/samples/
