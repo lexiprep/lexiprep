@@ -1,4 +1,17 @@
-import { and, asc, desc, eq, inArray, isNull, sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  sql,
+  type SQL,
+  type SQLWrapper,
+} from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
   books,
@@ -612,8 +625,11 @@ function reviewWhere(agg: ReviewAgg, userId: string, q: ReviewWordsQuery): SQL[]
     eq(userWords.language, q.language ?? "en"),
     eq(userWords.status, q.status ?? "learning"),
   ];
-  // With a book filter, drop words that don't occur in it (no agg row to match).
-  if (q.bookId) where.push(sql`${agg.lemma} is not null`);
+  // Only words that still occur in at least one of the user's books (or in the filtered
+  // book). A triaged word whose occurrences dropped to zero — e.g. after a reprocess split
+  // or stripped it away — must not linger in the vocabulary. (`agg` has a row only when the
+  // summed count is >= 1.)
+  where.push(sql`${agg.lemma} is not null`);
   where.push(...levelRange(agg.level, q.minLevel, q.maxLevel));
   if (q.q) {
     where.push(sql`${userWords.lemma} like ${"%" + q.q.trim().toLowerCase() + "%"}`);
@@ -645,9 +661,9 @@ function reviewOrderBy(sort: string | undefined, agg: ReviewAgg): SQL[] {
 /**
  * The cross-book study list: the user's `learning` words (by default), each enriched with
  * its CEFR level, total occurrences across the library, an example, and the book(s) it
- * appears in. Filter by book, CEFR range, and a substring; sort and paginate. Manually
- * added words (in no book) still appear — with no level/count — unless a book or level
- * filter is active.
+ * appears in. Filter by book, CEFR range, and a substring; sort and paginate. Words that
+ * no longer occur in any of the user's books (zero count) are excluded — a triaged word
+ * whose occurrences vanished after reprocessing shouldn't linger in the vocabulary.
  */
 export function listLearningWords(userId: string, q: ReviewWordsQuery) {
   const agg = reviewBookAgg(userId, q.language ?? "en", q.bookId);
@@ -724,7 +740,8 @@ export async function buildAnkiDeck(userId: string, q: DeckQuery): Promise<DeckC
     eq(userWords.language, language),
     eq(userWords.status, "learning"),
   ];
-  if (bookIds) where.push(sql`${agg.lemma} is not null`);
+  // Only words that occur in a book (the card front is the context sentence).
+  where.push(sql`${agg.lemma} is not null`);
   where.push(...levelRange(agg.level, q.minLevel, q.maxLevel));
 
   const rows = await db
@@ -766,19 +783,25 @@ export async function buildAnkiDeck(userId: string, q: DeckQuery): Promise<DeckC
 
 /** `total` = all the user's words of this status; `filtered` = those matching the view. */
 export async function countLearningWords(userId: string, q: ReviewWordsQuery) {
+  const language = q.language ?? "en";
+  // Both counts exclude words that no longer occur in any of the user's books. `total`
+  // additionally ignores the level/book/search filters — it's the per-status grand total.
+  const totalAgg = reviewBookAgg(userId, language, undefined);
   const total = db
     .select({ n: sql<number>`count(*)::int` })
     .from(userWords)
+    .leftJoin(totalAgg, sql`${totalAgg.lemma} = ${userWords.lemma}`)
     .where(
       and(
         eq(userWords.userId, userId),
-        eq(userWords.language, q.language ?? "en"),
+        eq(userWords.language, language),
         eq(userWords.status, q.status ?? "learning"),
+        sql`${totalAgg.lemma} is not null`,
       ),
     )
     .then((r) => r[0]?.n ?? 0);
 
-  const agg = reviewBookAgg(userId, q.language ?? "en", q.bookId);
+  const agg = reviewBookAgg(userId, language, q.bookId);
   const filtered = db
     .select({ n: sql<number>`count(*)::int` })
     .from(userWords)
@@ -788,4 +811,157 @@ export async function countLearningWords(userId: string, q: ReviewWordsQuery) {
 
   const [t, f] = await Promise.all([total, filtered]);
   return { total: t, filtered: f };
+}
+
+// ── Vocabulary stats ─────────────────────────────────────────────────────────
+
+/** A correlated EXISTS: the user_words row's lemma occurs in ≥1 of the user's books. */
+function occursForUser(userId: string, language: string) {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(bookWords)
+      .innerJoin(books, eq(books.id, bookWords.bookId))
+      .where(
+        and(
+          eq(books.userId, userId),
+          eq(books.language, language),
+          sql`coalesce(${bookWords.lemma}, ${bookWords.word}) = ${userWords.lemma}`,
+        ),
+      ),
+  );
+}
+
+export interface VocabCounts {
+  learning: number;
+  known: number;
+  ignored: number;
+}
+
+/**
+ * Count the user's words per status (for the vocabulary tab badges). Excludes words that
+ * no longer occur in any of the user's books — consistent with what the lists actually show.
+ */
+export async function countUserWordsByStatus(
+  userId: string,
+  language = "en",
+): Promise<VocabCounts> {
+  const rows = await db
+    .select({ status: userWords.status, n: sql<number>`count(*)::int` })
+    .from(userWords)
+    .where(
+      and(
+        eq(userWords.userId, userId),
+        eq(userWords.language, language),
+        occursForUser(userId, language),
+      ),
+    )
+    .groupBy(userWords.status);
+
+  const out: VocabCounts = { learning: 0, known: 0, ignored: 0 };
+  for (const r of rows) {
+    if (r.status === "learning" || r.status === "known" || r.status === "ignored") {
+      out[r.status] = r.n;
+    }
+  }
+  return out;
+}
+
+export type Granularity = "day" | "week" | "month";
+export const GRANULARITIES: readonly Granularity[] = ["day", "week", "month"];
+
+export interface TimeseriesPoint {
+  /** Bucket start, YYYY-MM-DD. */
+  period: string;
+  learning: number;
+  known: number;
+}
+
+export interface VocabularyTimeseries {
+  granularity: Granularity;
+  /** Words already accumulated before `from` (so cumulative totals start from the truth). */
+  baseline: { learning: number; known: number };
+  /** Words *added* (first triaged) per bucket, by current status. */
+  buckets: TimeseriesPoint[];
+}
+
+export interface TimeseriesQuery {
+  language?: string;
+  from: Date;
+  /** Inclusive end day. */
+  to: Date;
+  granularity: Granularity;
+}
+
+/**
+ * Vocabulary growth over time. Each word is bucketed by when it was first added
+ * (`created_at`) and attributed to its current status — so the series reads as "how my
+ * Learning / Known vocabulary accumulated". Only words that still occur in a book are
+ * counted (matching the lists). NOTE: status history isn't stored, so a word that moved
+ * learning → known shows only under Known, at its add date. `baseline` carries the totals
+ * before `from` so a cumulative chart starts from the real running total, not zero.
+ */
+export async function getVocabularyTimeseries(
+  userId: string,
+  q: TimeseriesQuery,
+): Promise<VocabularyTimeseries> {
+  const language = q.language ?? "en";
+  const toExclusive = new Date(q.to.getTime() + 24 * 60 * 60 * 1000); // include the `to` day
+  const occ = occursForUser(userId, language);
+  // Inline the (allowlisted) granularity as a literal, not a bind param: the same
+  // date_trunc expression must appear in SELECT, GROUP BY and ORDER BY, and Postgres
+  // only treats them as one grouped expression when they're textually identical.
+  const unit: Granularity = GRANULARITIES.includes(q.granularity) ? q.granularity : "day";
+  const trunc = sql`date_trunc(${sql.raw(`'${unit}'`)}, ${userWords.createdAt})`;
+
+  const bucketRows = await db
+    .select({
+      period: sql<string>`to_char(${trunc}, 'YYYY-MM-DD')`,
+      status: userWords.status,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(userWords)
+    .where(
+      and(
+        eq(userWords.userId, userId),
+        eq(userWords.language, language),
+        inArray(userWords.status, ["learning", "known"]),
+        gte(userWords.createdAt, q.from),
+        lt(userWords.createdAt, toExclusive),
+        occ,
+      ),
+    )
+    .groupBy(trunc, userWords.status)
+    .orderBy(trunc);
+
+  const baselineRows = await db
+    .select({ status: userWords.status, n: sql<number>`count(*)::int` })
+    .from(userWords)
+    .where(
+      and(
+        eq(userWords.userId, userId),
+        eq(userWords.language, language),
+        inArray(userWords.status, ["learning", "known"]),
+        lt(userWords.createdAt, q.from),
+        occ,
+      ),
+    )
+    .groupBy(userWords.status);
+
+  const byPeriod = new Map<string, TimeseriesPoint>();
+  for (const r of bucketRows) {
+    const p = byPeriod.get(r.period) ?? { period: r.period, learning: 0, known: 0 };
+    if (r.status === "learning" || r.status === "known") p[r.status] = r.n;
+    byPeriod.set(r.period, p);
+  }
+  const baseline = { learning: 0, known: 0 };
+  for (const r of baselineRows) {
+    if (r.status === "learning" || r.status === "known") baseline[r.status] = r.n;
+  }
+
+  return {
+    granularity: q.granularity,
+    baseline,
+    buckets: [...byPeriod.values()],
+  };
 }
