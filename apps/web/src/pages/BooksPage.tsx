@@ -34,8 +34,9 @@ export function BooksPage() {
   function onPick(file: File | undefined) {
     setError(null);
     if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".epub")) {
-      setError("Only .epub files are supported");
+    const name = file.name.toLowerCase();
+    if (!name.endsWith(".epub") && !name.endsWith(".pdf")) {
+      setError("Only .epub and .pdf files are supported");
       return;
     }
     upload.mutate(file);
@@ -50,7 +51,7 @@ export function BooksPage() {
         <input
           ref={fileInput}
           type="file"
-          accept=".epub,application/epub+zip"
+          accept=".epub,.pdf,application/epub+zip,application/pdf"
           hidden
           onChange={(e) => onPick(e.target.files?.[0])}
         />
@@ -59,7 +60,7 @@ export function BooksPage() {
           onClick={() => fileInput.current?.click()}
           disabled={upload.isPending}
         >
-          {upload.isPending ? "Uploading…" : "Upload EPUB"}
+          {upload.isPending ? "Uploading…" : "Upload book"}
         </button>
       </div>
 
@@ -74,7 +75,7 @@ export function BooksPage() {
           ))}
         </div>
       ) : (
-        <p className="muted empty">No books yet. Upload an EPUB to get started.</p>
+        <p className="muted empty">No books yet. Upload an EPUB or PDF to get started.</p>
       )}
     </section>
   );
@@ -95,7 +96,6 @@ function BookCard({ book }: { book: Book }) {
       <div className="book-meta muted small">
         {ready && (
           <>
-            <span>{book.chapterCount ?? "—"} chapters</span>
             <span>{(book.tokenCount ?? 0).toLocaleString()} tokens</span>
             {book.reviewedAt && <span className="pill green">reviewed</span>}
           </>

@@ -24,7 +24,8 @@ English first, Spanish later. Open source, self-hostable. Full design in `docs/s
   here means **multi-tenant** — it may serve a family, a group of friends, or paid
   subscriptions. Avoid choices that cap horizontal scale; flag any that do.
 - **pg-boss** for background jobs (parsing/enrichment), running on Postgres — no Redis.
-- **EPUB only** for v1 (PDF/MOBI deferred). "Filter by pages" maps to chapter/spine ranges.
+- **EPUB and PDF** supported (MOBI deferred). EPUB "filter by pages" maps to chapter/spine
+  ranges; PDF maps to real page ranges (`@lexiprep/core` reads one section per page).
 
 ## Conventions
 

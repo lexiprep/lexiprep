@@ -18,16 +18,16 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
   // Every route here requires a session.
   app.addHook("preHandler", requireAuth);
 
-  // Upload an EPUB -> create the book and enqueue processing.
+  // Upload an EPUB or PDF -> create the book and enqueue processing.
   app.post("/books", async (request, reply) => {
     const file = await request.file();
     if (!file) {
       reply.code(400);
       return { error: "No file uploaded" };
     }
-    if (!/\.epub$/i.test(file.filename)) {
+    if (!/\.(epub|pdf)$/i.test(file.filename)) {
       reply.code(415);
-      return { error: "Only .epub files are supported" };
+      return { error: "Only .epub and .pdf files are supported" };
     }
 
     const data = await file.toBuffer();

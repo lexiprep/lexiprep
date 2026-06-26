@@ -243,7 +243,7 @@ describe("GET /api/words/export", () => {
 });
 
 describe("POST /api/books (upload guardrails)", () => {
-  it("415s a non-epub upload", async () => {
+  it("415s an unsupported file type (e.g. .txt)", async () => {
     const boundary = "----lexipreptestboundary";
     const body = [
       `--${boundary}`,

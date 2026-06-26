@@ -12,5 +12,12 @@ const { apply } = await pushSchema(
 );
 await apply();
 
+// drizzle-kit/api (imported above for schema push) installs an *enumerable*
+// `Array.prototype.random`, and pdf.js — used by `@lexiprep/core`'s `readPdf` —
+// refuses to run while `Array.prototype` is polluted. drizzle-kit is dev-only
+// (not a runtime dependency), so production is unaffected; strip it here so
+// PDF-processing tests can run pdf.js in the same process.
+delete (Array.prototype as { random?: unknown }).random;
+
 // Isolate every test: start from an empty database.
 beforeEach(resetDb);
