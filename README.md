@@ -31,8 +31,8 @@ Two repos:
 
 | Repo | What it is |
 |---|---|
-| [`lexiprep-core`](https://github.com/ORG/lexiprep-core) (`@lexiprep/core`, MIT) | Reusable, framework-agnostic pipeline: EPUB → clean text → tokens → frequency list. Pure TypeScript, fully tested, no server/DB deps. **Built.** |
-| `lexiprep` *(this repo, AGPL)* | The app: `apps/server` (Fastify, Postgres + Drizzle, `pg-boss` jobs, multi-user auth) and `apps/web` (React + Vite). Consumes `@lexiprep/core`. **Working.** |
+| [`lexiprep-core`](https://github.com/lexiprep/lexiprep-core) ([`@lexiprep/core`](https://www.npmjs.com/package/@lexiprep/core), MIT) | Reusable, framework-agnostic pipeline: EPUB → clean text → tokens → frequency list. Pure TypeScript, fully tested, no server/DB deps. Published on npm. **Built.** |
+| `lexiprep` *(this repo, AGPL)* | The app: `apps/server` (Fastify, Postgres + Drizzle, `pg-boss` jobs, multi-user auth) and `apps/web` (React + Vite). Consumes [`@lexiprep/core`](https://www.npmjs.com/package/@lexiprep/core). **Working.** |
 
 The extraction engine is its own open-source library so it can power this app, a CLI,
 other projects, or run client-side. **It was built first.**
