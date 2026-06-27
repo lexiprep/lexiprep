@@ -37,6 +37,10 @@ English first, Spanish later. Open source, self-hostable. Full design in `docs/s
   hand-roll a `.modal-overlay` backdrop. It owns the backdrop, click-to-close, and the body
   scroll lock (`useBodyScrollLock`), so the page behind an open modal can never scroll. This
   is a hard rule for every current and future modal.
+- **Local DB access goes through the `lexiprep-db` MCP server** (`mcp__lexiprep-db__*` —
+  `pg_execute_query` for reads, `pg_execute_sql`/`pg_execute_mutation` for writes), never
+  `docker exec … psql` or a host `psql`. This is the standard way to inspect or modify the
+  dev database; use it for ad-hoc queries, schema checks, and seeding/verification.
 
 ## Commands
 

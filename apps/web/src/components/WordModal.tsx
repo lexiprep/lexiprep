@@ -26,6 +26,9 @@ export interface WordModalInitial {
   count: number;
   status: UserWordStatus | null;
   example: string | null;
+  /** Title of the book the context phrase was taken from (shown on the cross-book
+   * vocabulary page, where a word may come from any of several books). */
+  bookTitle?: string | null;
 }
 
 const errMessage = (err: unknown, fallback: string) =>
@@ -201,6 +204,11 @@ export function WordModal({
 
         {headExample && (
           <p className="example">“{highlightForms(headExample, formSet)}”</p>
+        )}
+        {headExample && initial?.bookTitle && (
+          <p className="example-source muted small">
+            from <cite>{initial.bookTitle}</cite>
+          </p>
         )}
 
         <div className="modal-section">
