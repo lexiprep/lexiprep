@@ -6,24 +6,24 @@ describe("toChartRows", () => {
   it("keeps per-bucket adds and accumulates totals from the baseline", () => {
     const ts: VocabularyTimeseries = {
       granularity: "day",
-      baseline: { learning: 5, known: 10 },
+      baseline: { learning: 5, known: 10, learned: 3 },
       buckets: [
-        { period: "2026-01-01", learning: 2, known: 1 },
-        { period: "2026-01-02", learning: 0, known: 3 },
-        { period: "2026-01-03", learning: 4, known: 0 },
+        { period: "2026-01-01", learning: 2, known: 1, learned: 1 },
+        { period: "2026-01-02", learning: 0, known: 3, learned: 0 },
+        { period: "2026-01-03", learning: 4, known: 0, learned: 2 },
       ],
     };
     expect(toChartRows(ts)).toEqual([
-      { period: "2026-01-01", learningAdded: 2, knownAdded: 1, learningTotal: 7, knownTotal: 11 },
-      { period: "2026-01-02", learningAdded: 0, knownAdded: 3, learningTotal: 7, knownTotal: 14 },
-      { period: "2026-01-03", learningAdded: 4, knownAdded: 0, learningTotal: 11, knownTotal: 14 },
+      { period: "2026-01-01", learningAdded: 2, knownAdded: 1, learnedAdded: 1, learningTotal: 7, knownTotal: 11, learnedTotal: 4 },
+      { period: "2026-01-02", learningAdded: 0, knownAdded: 3, learnedAdded: 0, learningTotal: 7, knownTotal: 14, learnedTotal: 4 },
+      { period: "2026-01-03", learningAdded: 4, knownAdded: 0, learnedAdded: 2, learningTotal: 11, knownTotal: 14, learnedTotal: 6 },
     ]);
   });
 
   it("returns an empty array when there are no buckets", () => {
     const ts: VocabularyTimeseries = {
       granularity: "week",
-      baseline: { learning: 0, known: 0 },
+      baseline: { learning: 0, known: 0, learned: 0 },
       buckets: [],
     };
     expect(toChartRows(ts)).toEqual([]);
@@ -32,11 +32,11 @@ describe("toChartRows", () => {
   it("starts cumulative totals at zero when the baseline is empty", () => {
     const ts: VocabularyTimeseries = {
       granularity: "month",
-      baseline: { learning: 0, known: 0 },
-      buckets: [{ period: "2026-02-01", learning: 3, known: 2 }],
+      baseline: { learning: 0, known: 0, learned: 0 },
+      buckets: [{ period: "2026-02-01", learning: 3, known: 2, learned: 1 }],
     };
     const [row] = toChartRows(ts);
-    expect(row).toMatchObject({ learningTotal: 3, knownTotal: 2 });
+    expect(row).toMatchObject({ learningTotal: 3, knownTotal: 2, learnedTotal: 1 });
   });
 });
 

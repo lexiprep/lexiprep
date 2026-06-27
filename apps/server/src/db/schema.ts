@@ -108,6 +108,48 @@ export const userWords = pgTable(
   (t) => [unique("user_words_user_lang_lemma_uniq").on(t.userId, t.language, t.lemma)],
 );
 
+/**
+ * Which UI surface triggered a status change. `user_words.status` is the *current* state
+ * and overwrites in place, so the only way to tell a deliberate study action from a
+ * book-page triage correction is to record the origin here:
+ *  - `learning` — the cross-book Learning page (the deliberate "I've studied it" action)
+ *  - `book`     — a book's review page (triage; learning→known here is a correction, not
+ *                 a learned word — see {@link userWordEvents} and the "learned" series)
+ */
+export const WORD_EVENT_SOURCES = ["book", "learning"] as const;
+export type WordEventSource = (typeof WORD_EVENT_SOURCES)[number];
+
+/**
+ * Append-only audit log of every {@link userWords} status transition. `user_words` keeps
+ * only the latest status (last-write-wins), so this table is the history: it lets us tell
+ * that a word went learning → known (and *where* it happened), which `user_words` alone
+ * cannot. A word is "learned" when it transitions `learning` → `known` with
+ * `source = 'learning'`; a learning→known done from a book page is triage, not learning.
+ * No backfill exists for pre-existing words, so history starts accumulating from rollout.
+ */
+export const userWordEvents = pgTable(
+  "user_word_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    language: text("language").notNull(),
+    lemma: text("lemma").notNull(),
+    /** Status before the change; null when the word had no prior `user_words` row. */
+    fromStatus: text("from_status"),
+    /** Status after the change; null when the word's row was cleared (deleted). */
+    toStatus: text("to_status"),
+    source: text("source").notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("user_word_events_user_lemma_idx").on(t.userId, t.language, t.lemma),
+    // Serves the "learned" timeseries (filter on user+to_status, bucket by time).
+    index("user_word_events_learned_idx").on(t.userId, t.toStatus, t.at),
+  ],
+);
+
 /** The raw uploaded EPUB bytes, kept so any worker can (re)process it. */
 export const bookFiles = pgTable("book_files", {
   bookId: uuid("book_id")
@@ -171,6 +213,8 @@ export type BookWord = typeof bookWords.$inferSelect;
 export type NewBookWord = typeof bookWords.$inferInsert;
 export type UserWord = typeof userWords.$inferSelect;
 export type NewUserWord = typeof userWords.$inferInsert;
+export type UserWordEvent = typeof userWordEvents.$inferSelect;
+export type NewUserWordEvent = typeof userWordEvents.$inferInsert;
 /**
  * A user's own note on a word, scoped to one book — the word may carry a specific
  * meaning in that book's context. Shown in the modal as an addition to the dictionary

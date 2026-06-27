@@ -65,7 +65,7 @@ describe("vocabulary stats endpoints", () => {
   });
 
   it("getVocabTimeseries passes from/to/granularity", async () => {
-    const f = mockFetch({ granularity: "week", baseline: { learning: 0, known: 0 }, buckets: [] });
+    const f = mockFetch({ granularity: "week", baseline: { learning: 0, known: 0, learned: 0 }, buckets: [] });
     await getVocabTimeseries({ from: "2026-01-01", to: "2026-03-01", granularity: "week" });
     const url = f.mock.calls[0]![0] as string;
     expect(url).toContain("/api/words/stats/timeseries?");
@@ -100,6 +100,6 @@ describe("request() behavior", () => {
 
   it("resolves undefined on a 204 No Content", async () => {
     mockFetch(null, { status: 204 });
-    await expect(clearWordStatus("ocean")).resolves.toBeUndefined();
+    await expect(clearWordStatus("ocean", "en", "learning")).resolves.toBeUndefined();
   });
 });

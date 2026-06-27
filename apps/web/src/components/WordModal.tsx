@@ -8,8 +8,10 @@ import {
   setWordNote,
   setWordStatus,
   type UserWordStatus,
+  type WordEventSource,
 } from "../lib/api";
 import { LevelBadge, StatusBadge } from "./badges";
+import { ModalOverlay } from "./ModalOverlay";
 
 const ACTIONS: { status: UserWordStatus; label: string; cls: string }[] = [
   { status: "learning", label: "Learning", cls: "blue" },
@@ -68,12 +70,16 @@ export function WordModal({
   bookId,
   word,
   language,
+  source,
   initial,
   onClose,
 }: {
   bookId: string;
   word: string;
   language: string;
+  /** Which page opened the modal — drives the "learned" series. The book page is triage
+   * (`book`); the Learning page is the deliberate study action (`learning`). */
+  source: WordEventSource;
   /** Row data shown instantly; the full detail (definition, note, forms) loads in parallel. */
   initial?: WordModalInitial;
   onClose: () => void;
@@ -110,7 +116,7 @@ export function WordModal({
   }, [d, pending]);
 
   const mark = useMutation({
-    mutationFn: (status: UserWordStatus) => setWordStatus(word, status, language),
+    mutationFn: (status: UserWordStatus) => setWordStatus(word, status, language, source),
     onError: (err) => {
       setPending(undefined); // reset the button to the server's actual state
       toast.error(errMessage(err, `Couldn't update “${word}”.`));
@@ -118,7 +124,7 @@ export function WordModal({
     onSettled: invalidate,
   });
   const clear = useMutation({
-    mutationFn: () => clearWordStatus(word, language),
+    mutationFn: () => clearWordStatus(word, language, source),
     onError: (err) => {
       setPending(undefined);
       toast.error(errMessage(err, `Couldn't update “${word}”.`));
@@ -178,125 +184,123 @@ export function WordModal({
   }, [word, headWord, d?.forms]);
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose} aria-label="Close">
-          ×
-        </button>
+    <ModalOverlay onClose={onClose}>
+      <button className="modal-close" onClick={onClose} aria-label="Close">
+        ×
+      </button>
 
-        <div className="modal-body">
-          <div className="modal-head">
-            <h2>{headWord}</h2>
-            <LevelBadge level={headLevel} />
-            {headCount != null && (
-              <span className="count-chip">{headCount.toLocaleString()}×</span>
-            )}
-            <StatusBadge status={effectiveStatus} />
-          </div>
-
-          {headExample && (
-            <p className="example">“{highlightForms(headExample, formSet)}”</p>
+      <div className="modal-body">
+        <div className="modal-head">
+          <h2>{headWord}</h2>
+          <LevelBadge level={headLevel} />
+          {headCount != null && (
+            <span className="count-chip">{headCount.toLocaleString()}×</span>
           )}
+          <StatusBadge status={effectiveStatus} />
+        </div>
 
+        {headExample && (
+          <p className="example">“{highlightForms(headExample, formSet)}”</p>
+        )}
+
+        <div className="modal-section">
+          <h4>Definition</h4>
+          {detail.isLoading ? (
+            <p className="muted small">Loading…</p>
+          ) : d?.definition && d.definition.length > 0 ? (
+            <ol className="senses">
+              {d.definition.map((s, i) => (
+                <li key={i}>
+                  <span className="pos">{s.pos}</span>
+                  <span>{s.gloss}</span>
+                  {s.example && (
+                    <span className="muted small sense-ex">“{s.example}”</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="muted small">No definition found for this word.</p>
+          )}
+        </div>
+
+        {d && (
           <div className="modal-section">
-            <h4>Definition</h4>
-            {detail.isLoading ? (
-              <p className="muted small">Loading…</p>
-            ) : d?.definition && d.definition.length > 0 ? (
-              <ol className="senses">
-                {d.definition.map((s, i) => (
-                  <li key={i}>
-                    <span className="pos">{s.pos}</span>
-                    <span>{s.gloss}</span>
-                    {s.example && (
-                      <span className="muted small sense-ex">“{s.example}”</span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="muted small">No definition found for this word.</p>
-            )}
-          </div>
-
-          {d && (
-            <div className="modal-section">
-              <h4>Your note {d.note && <span className="dot-saved" title="saved" />}</h4>
-              <textarea
-                className="note-input"
-                rows={2}
-                placeholder="Add a meaning specific to this book’s context…"
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-              />
-              <div className="note-actions">
+            <h4>Your note {d.note && <span className="dot-saved" title="saved" />}</h4>
+            <textarea
+              className="note-input"
+              rows={2}
+              placeholder="Add a meaning specific to this book’s context…"
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+            />
+            <div className="note-actions">
+              <button
+                className="btn primary slim"
+                disabled={
+                  !noteText.trim() ||
+                  noteText.trim() === (d.note ?? "") ||
+                  saveNote.isPending
+                }
+                onClick={() => saveNote.mutate()}
+              >
+                {d.note ? "Update note" : "Save note"}
+              </button>
+              {d.note && (
                 <button
-                  className="btn primary slim"
-                  disabled={
-                    !noteText.trim() ||
-                    noteText.trim() === (d.note ?? "") ||
-                    saveNote.isPending
-                  }
-                  onClick={() => saveNote.mutate()}
+                  className="btn ghost slim"
+                  disabled={removeNote.isPending}
+                  onClick={() => removeNote.mutate()}
                 >
-                  {d.note ? "Update note" : "Save note"}
+                  Remove
                 </button>
-                {d.note && (
-                  <button
-                    className="btn ghost slim"
-                    disabled={removeNote.isPending}
-                    onClick={() => removeNote.mutate()}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+              )}
             </div>
-          )}
-
-          {d && d.forms.length > 1 && (
-            <div className="modal-section">
-              <h4>Forms in this book</h4>
-              <p className="forms-inline">
-                {d.forms.map((f) => (
-                  <span key={f.word} className="form-chip">
-                    {f.word}
-                    <span className="count-chip">{f.count}×</span>
-                  </span>
-                ))}
-              </p>
-            </div>
-          )}
-
-          <p className="muted modal-attribution">
-            Definitions: Open English WordNet (CC BY) · Wiktionary (CC BY-SA)
-          </p>
-        </div>
-
-        {/* Pinned footer: status actions stay visible while the body scrolls. */}
-        <div className="modal-foot">
-          <div className="modal-actions">
-            {ACTIONS.map((a) => {
-              const active = effectiveStatus === a.status;
-              return (
-                <button
-                  key={a.status}
-                  className={`btn ${a.cls}${active ? " active" : ""}`}
-                  title={active ? `Click to remove “${a.label}”` : undefined}
-                  onClick={() => choose(a.status)}
-                >
-                  {active ? `✓ ${a.label}` : a.label}
-                </button>
-              );
-            })}
           </div>
-          {effectiveStatus && (
-            <p className="muted small center action-hint">
-              Click the highlighted button again to undo.
+        )}
+
+        {d && d.forms.length > 1 && (
+          <div className="modal-section">
+            <h4>Forms in this book</h4>
+            <p className="forms-inline">
+              {d.forms.map((f) => (
+                <span key={f.word} className="form-chip">
+                  {f.word}
+                  <span className="count-chip">{f.count}×</span>
+                </span>
+              ))}
             </p>
-          )}
-        </div>
+          </div>
+        )}
+
+        <p className="muted modal-attribution">
+          Definitions: Open English WordNet (CC BY) · Wiktionary (CC BY-SA)
+        </p>
       </div>
-    </div>
+
+      {/* Pinned footer: status actions stay visible while the body scrolls. */}
+      <div className="modal-foot">
+        <div className="modal-actions">
+          {ACTIONS.map((a) => {
+            const active = effectiveStatus === a.status;
+            return (
+              <button
+                key={a.status}
+                className={`btn ${a.cls}${active ? " active" : ""}`}
+                title={active ? `Click to remove “${a.label}”` : undefined}
+                onClick={() => choose(a.status)}
+              >
+                {active ? `✓ ${a.label}` : a.label}
+              </button>
+            );
+          })}
+        </div>
+        {effectiveStatus && (
+          <p className="muted small center action-hint">
+            Click the highlighted button again to undo.
+          </p>
+        )}
+      </div>
+    </ModalOverlay>
   );
 }

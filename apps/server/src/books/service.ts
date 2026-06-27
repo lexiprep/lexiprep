@@ -18,10 +18,13 @@ import {
   bookFiles,
   bookWords,
   userWords,
+  userWordEvents,
   definitions,
   wordNotes,
   type Book,
+  type NewUserWordEvent,
   type UserWordStatus,
+  type WordEventSource,
   type WordSense,
 } from "../db/schema.js";
 
@@ -157,12 +160,62 @@ export async function reprocessBook(
   return updated ?? null;
 }
 
-export function listBooks(userId: string): Promise<Book[]> {
-  return db
+export interface BookListItem extends Book {
+  /** Distinct words (lemmas) in the book, stopwords hidden — same as the book page's `total`. */
+  uniqueWords: number;
+  /** Of those, still untriaged (not yet sorted into known/learning/ignored). */
+  wordsToReview: number;
+}
+
+/**
+ * The user's books, newest first, each enriched with two review-progress counts:
+ * `uniqueWords` (distinct lemma groups, stopwords hidden) and `wordsToReview` (those still
+ * untriaged). Computed from `book_words` grouped by base form so they match
+ * {@link getBookWordStats}'s `total`/`remaining` exactly. Books with no words yet count 0.
+ */
+export async function listBooks(userId: string): Promise<BookListItem[]> {
+  const rows = await db
     .select()
     .from(books)
     .where(eq(books.userId, userId))
     .orderBy(desc(books.createdAt));
+
+  // One row per (book, lemma-group): is it a stopword group, and has it been triaged?
+  const grp = db
+    .select({
+      bookId: bookWords.bookId,
+      isStopword: sql<boolean>`bool_or(${bookWords.isStopword})`.as("is_stopword"),
+      triaged: sql<boolean>`bool_or(${userWords.id} is not null)`.as("triaged"),
+    })
+    .from(bookWords)
+    .innerJoin(books, eq(books.id, bookWords.bookId))
+    .leftJoin(
+      userWords,
+      and(
+        eq(userWords.userId, userId),
+        sql`${userWords.language} = ${books.language}`,
+        sql`${userWords.lemma} = ${KEY}`,
+      ),
+    )
+    .where(eq(books.userId, userId))
+    .groupBy(bookWords.bookId, KEY)
+    .as("grp");
+
+  const counts = await db
+    .select({
+      bookId: grp.bookId,
+      uniqueWords: sql<number>`count(*) filter (where ${grp.isStopword} = false)::int`,
+      wordsToReview: sql<number>`count(*) filter (where ${grp.isStopword} = false and ${grp.triaged} = false)::int`,
+    })
+    .from(grp)
+    .groupBy(grp.bookId);
+
+  const byId = new Map(counts.map((c) => [c.bookId, c]));
+  return rows.map((b) => ({
+    ...b,
+    uniqueWords: byId.get(b.id)?.uniqueWords ?? 0,
+    wordsToReview: byId.get(b.id)?.wordsToReview ?? 0,
+  }));
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -376,11 +429,19 @@ export function listUserWords(
     .orderBy(asc(userWords.lemma));
 }
 
-/** Bulk upsert of (lemma -> status) for one user+language. Last write wins. */
+/**
+ * Bulk upsert of (lemma -> status) for one user+language. Last write wins. Every real
+ * change (the status actually differs from the prior value, or the word is new) is recorded
+ * in {@link userWordEvents} tagged with its `source` — that audit trail is the only way to
+ * later distinguish a deliberate learning→known (Learning page) from a book-page triage
+ * correction (the "learned" series keys on it). Runs in one transaction so the current
+ * status and its history can never drift apart.
+ */
 export async function upsertUserWords(
   userId: string,
   language: string,
   items: UserWordItem[],
+  source: WordEventSource,
 ): Promise<void> {
   // Dedupe within the batch (later entries win) so one INSERT has no dup conflict keys.
   const byLemma = new Map<string, UserWordStatus>();
@@ -389,26 +450,72 @@ export async function upsertUserWords(
     if (key) byLemma.set(key, status);
   }
   if (byLemma.size === 0) return;
+  const lemmas = [...byLemma.keys()];
 
-  await db
-    .insert(userWords)
-    .values([...byLemma].map(([lemma, status]) => ({ userId, language, lemma, status })))
-    .onConflictDoUpdate({
-      target: [userWords.userId, userWords.language, userWords.lemma],
-      set: { status: sql`excluded.status`, updatedAt: sql`now()` },
-    });
+  await db.transaction(async (tx) => {
+    // Prior statuses, so we can record accurate from→to transitions and skip no-op re-marks.
+    const prior = await tx
+      .select({ lemma: userWords.lemma, status: userWords.status })
+      .from(userWords)
+      .where(
+        and(
+          eq(userWords.userId, userId),
+          eq(userWords.language, language),
+          inArray(userWords.lemma, lemmas),
+        ),
+      );
+    const prevByLemma = new Map(prior.map((r) => [r.lemma, r.status]));
+
+    await tx
+      .insert(userWords)
+      .values(lemmas.map((lemma) => ({ userId, language, lemma, status: byLemma.get(lemma)! })))
+      .onConflictDoUpdate({
+        target: [userWords.userId, userWords.language, userWords.lemma],
+        set: { status: sql`excluded.status`, updatedAt: sql`now()` },
+      });
+
+    const events: NewUserWordEvent[] = [];
+    for (const lemma of lemmas) {
+      const to = byLemma.get(lemma)!;
+      const from = prevByLemma.get(lemma) ?? null;
+      if (from === to) continue; // re-marking the same status — not a transition, don't log
+      events.push({ userId, language, lemma, fromStatus: from, toStatus: to, source });
+    }
+    if (events.length > 0) await tx.insert(userWordEvents).values(events);
+  });
 }
 
-export function deleteUserWord(userId: string, language: string, lemma: string) {
-  return db
-    .delete(userWords)
-    .where(
-      and(
-        eq(userWords.userId, userId),
-        eq(userWords.language, language),
-        eq(userWords.lemma, lemma.trim().toLowerCase()),
-      ),
-    );
+/** Remove one word from the user's vocabulary, logging a clear event (to_status null). */
+export async function deleteUserWord(
+  userId: string,
+  language: string,
+  lemma: string,
+  source: WordEventSource,
+) {
+  const key = lemma.trim().toLowerCase();
+  const where = and(
+    eq(userWords.userId, userId),
+    eq(userWords.language, language),
+    eq(userWords.lemma, key),
+  );
+  return db.transaction(async (tx) => {
+    const [prev] = await tx
+      .select({ status: userWords.status })
+      .from(userWords)
+      .where(where)
+      .limit(1);
+    await tx.delete(userWords).where(where);
+    if (prev) {
+      await tx.insert(userWordEvents).values({
+        userId,
+        language,
+        lemma: key,
+        fromStatus: prev.status,
+        toStatus: null,
+        source,
+      });
+    }
+  });
 }
 
 // ── Book review ─────────────────────────────────────────────────────────────
@@ -433,7 +540,7 @@ export async function reviewBatch(
     const lemma = raw.trim().toLowerCase();
     if (lemma && !learningSet.has(lemma)) items.push({ lemma, status: rest });
   }
-  await upsertUserWords(userId, book.language, items);
+  await upsertUserWords(userId, book.language, items, "book");
   return { learning: learningSet.size, resolved: items.length - learningSet.size };
 }
 
@@ -464,6 +571,7 @@ export async function finishBookReview(
     userId,
     book.language,
     remaining.map((r) => ({ lemma: r.key, status: "known" as const })),
+    "book",
   );
   await db.update(books).set({ reviewedAt: new Date() }).where(eq(books.id, book.id));
   return { known: remaining.length };
@@ -820,8 +928,8 @@ export async function countLearningWords(userId: string, q: ReviewWordsQuery) {
 
 // ── Vocabulary stats ─────────────────────────────────────────────────────────
 
-/** A correlated EXISTS: the user_words row's lemma occurs in ≥1 of the user's books. */
-function occursForUser(userId: string, language: string) {
+/** A correlated EXISTS: `lemma` occurs in ≥1 of the user's books in this language. */
+function lemmaOccursForUser(userId: string, language: string, lemma: SQLWrapper) {
   return exists(
     db
       .select({ one: sql`1` })
@@ -831,10 +939,15 @@ function occursForUser(userId: string, language: string) {
         and(
           eq(books.userId, userId),
           eq(books.language, language),
-          sql`coalesce(${bookWords.lemma}, ${bookWords.word}) = ${userWords.lemma}`,
+          sql`coalesce(${bookWords.lemma}, ${bookWords.word}) = ${lemma}`,
         ),
       ),
   );
+}
+
+/** The user_words row's lemma occurs in ≥1 of the user's books (the list/stats filter). */
+function occursForUser(userId: string, language: string) {
+  return lemmaOccursForUser(userId, language, userWords.lemma);
 }
 
 export interface VocabCounts {
@@ -880,13 +993,15 @@ export interface TimeseriesPoint {
   period: string;
   learning: number;
   known: number;
+  /** Words *learned* in this bucket: moved learning → known from the Learning page. */
+  learned: number;
 }
 
 export interface VocabularyTimeseries {
   granularity: Granularity;
   /** Words already accumulated before `from` (so cumulative totals start from the truth). */
-  baseline: { learning: number; known: number };
-  /** Words *added* (first triaged) per bucket, by current status. */
+  baseline: { learning: number; known: number; learned: number };
+  /** Words *added* (first triaged) per bucket, by current status; plus those *learned*. */
   buckets: TimeseriesPoint[];
 }
 
@@ -899,12 +1014,14 @@ export interface TimeseriesQuery {
 }
 
 /**
- * Vocabulary growth over time. Each word is bucketed by when it was first added
- * (`created_at`) and attributed to its current status — so the series reads as "how my
- * Learning / Known vocabulary accumulated". Only words that still occur in a book are
- * counted (matching the lists). NOTE: status history isn't stored, so a word that moved
- * learning → known shows only under Known, at its add date. `baseline` carries the totals
- * before `from` so a cumulative chart starts from the real running total, not zero.
+ * Vocabulary growth over time. The Learning/Known series bucket each word by when it was
+ * first added (`created_at`) under its current status — "how my Learning / Known vocabulary
+ * accumulated". The Learned series is different: it draws on {@link userWordEvents} to count
+ * words that *transitioned* learning → known from the Learning page (a deliberate study
+ * action; book-page corrections are excluded), bucketed by when that happened. Only words
+ * that still occur in a book are counted (matching the lists). `baseline` carries the totals
+ * before `from` so a cumulative chart starts from the real running total, not zero. (No event
+ * history exists for words triaged before this feature shipped, so Learned starts at zero then.)
  */
 export async function getVocabularyTimeseries(
   userId: string,
@@ -953,13 +1070,49 @@ export async function getVocabularyTimeseries(
     )
     .groupBy(userWords.status);
 
+  // The "learned" series: learning → known transitions made from the Learning page, bucketed
+  // by when they happened (`at`), occurrence-filtered like the others. Drawn from the event log.
+  const learnedTrunc = sql`date_trunc(${sql.raw(`'${unit}'`)}, ${userWordEvents.at})`;
+  const learnedWhere = (...extra: (SQL | undefined)[]) =>
+    and(
+      eq(userWordEvents.userId, userId),
+      eq(userWordEvents.language, language),
+      eq(userWordEvents.fromStatus, "learning"),
+      eq(userWordEvents.toStatus, "known"),
+      eq(userWordEvents.source, "learning"),
+      lemmaOccursForUser(userId, language, userWordEvents.lemma),
+      ...extra,
+    );
+  const learnedBucketRows = await db
+    .select({
+      period: sql<string>`to_char(${learnedTrunc}, 'YYYY-MM-DD')`,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(userWordEvents)
+    .where(learnedWhere(gte(userWordEvents.at, q.from), lt(userWordEvents.at, toExclusive)))
+    .groupBy(learnedTrunc)
+    .orderBy(learnedTrunc);
+  const [learnedBaselineRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(userWordEvents)
+    .where(learnedWhere(lt(userWordEvents.at, q.from)));
+
   const byPeriod = new Map<string, TimeseriesPoint>();
+  const pointFor = (period: string): TimeseriesPoint => {
+    let p = byPeriod.get(period);
+    if (!p) {
+      p = { period, learning: 0, known: 0, learned: 0 };
+      byPeriod.set(period, p);
+    }
+    return p;
+  };
   for (const r of bucketRows) {
-    const p = byPeriod.get(r.period) ?? { period: r.period, learning: 0, known: 0 };
+    const p = pointFor(r.period);
     if (r.status === "learning" || r.status === "known") p[r.status] = r.n;
-    byPeriod.set(r.period, p);
   }
-  const baseline = { learning: 0, known: 0 };
+  for (const r of learnedBucketRows) pointFor(r.period).learned = r.n;
+
+  const baseline = { learning: 0, known: 0, learned: learnedBaselineRow?.n ?? 0 };
   for (const r of baselineRows) {
     if (r.status === "learning" || r.status === "known") baseline[r.status] = r.n;
   }
@@ -967,6 +1120,8 @@ export async function getVocabularyTimeseries(
   return {
     granularity: q.granularity,
     baseline,
-    buckets: [...byPeriod.values()],
+    // A learned-only bucket can fall between learning/known buckets, so sort (period is
+    // YYYY-MM-DD → lexicographic == chronological); the FE assumes ascending order.
+    buckets: [...byPeriod.values()].sort((a, b) => a.period.localeCompare(b.period)),
   };
 }

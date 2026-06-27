@@ -70,7 +70,7 @@ export function LearningPage() {
   const [bookId, setBookId] = useState("");
   const [minLevel, setMinLevel] = useState("");
   const [maxLevel, setMaxLevel] = useState("");
-  const [sort, setSort] = useState("added:desc");
+  const [sort, setSort] = useState("count:desc");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [openWord, setOpenWord] = useState<ReviewWord | null>(null);
@@ -154,7 +154,9 @@ export function LearningPage() {
 
   const mark = useMutation({
     mutationFn: (v: { word: string; status: UserWordStatus }) =>
-      setWordStatus(v.word, v.status, LANG),
+      // The Learning page is the deliberate study surface: a learning→known here is a
+      // genuinely learned word ("learning"-sourced), feeding the Learned series.
+      setWordStatus(v.word, v.status, LANG, "learning"),
     onMutate: (v) => {
       setRemoved((prev) => new Set(prev).add(v.word)); // drop the row optimistically
     },
@@ -310,7 +312,6 @@ export function LearningPage() {
               {sortableTh("word", "Word")}
               {sortableTh("level", "Level")}
               {sortableTh("count", "Count", true)}
-              <th>Book</th>
               <th className="right">Triage</th>
             </tr>
           </thead>
@@ -335,22 +336,6 @@ export function LearningPage() {
                 </td>
                 <td className="right">
                   <span className="num">{w.count.toLocaleString()}</span>
-                </td>
-                <td>
-                  {w.bookTitle ? (
-                    <span className="book-cell">
-                      <span className="book-title-cell" title={w.bookTitle}>
-                        {w.bookTitle}
-                      </span>
-                      {w.bookCount > 1 && (
-                        <span className="count-chip" title={`In ${w.bookCount} books`}>
-                          +{w.bookCount - 1}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="muted">—</span>
-                  )}
                 </td>
                 <td className="right">
                   <span className="row-actions">
@@ -404,6 +389,7 @@ export function LearningPage() {
           bookId={openWord.bookId}
           word={openWord.word}
           language={LANG}
+          source="learning"
           initial={{
             word: openWord.word,
             level: openWord.level,

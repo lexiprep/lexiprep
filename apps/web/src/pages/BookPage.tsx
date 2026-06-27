@@ -103,7 +103,9 @@ export function BookPage() {
 
   const markStatus = useMutation({
     mutationFn: (v: { word: string; status: UserWordStatus }) =>
-      setWordStatus(v.word, v.status, book?.language ?? "en"),
+      // From the book page, triage is "book"-sourced: a learning→known here is a correction,
+      // not a learned word (it won't feed the Learned series).
+      setWordStatus(v.word, v.status, book?.language ?? "en", "book"),
     onSuccess: () => {
       // Refresh the header counts and the cross-book vocabulary list — but deliberately
       // NOT ["words", id]: the loaded batch stays frozen so triaged words simply drop out
@@ -540,6 +542,7 @@ export function BookPage() {
           bookId={id}
           word={openWord.word}
           language={book.language}
+          source="book"
           initial={openWord}
           onClose={() => setOpenWord(null)}
         />

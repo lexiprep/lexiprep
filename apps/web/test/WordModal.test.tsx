@@ -40,6 +40,7 @@ function renderModal(initial?: WordModalInitial) {
       bookId="book-1"
       word="ocean"
       language="en"
+      source="book"
       initial={initial}
       onClose={vi.fn()}
     />,
@@ -110,7 +111,7 @@ describe("WordModal", () => {
     // Optimistic: the button shows active immediately, without awaiting the request.
     expect(screen.getByRole("button", { name: "✓ Known" })).toBeInTheDocument();
     await waitFor(() =>
-      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "known", "en"),
+      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "known", "en", "book"),
     );
   });
 
@@ -135,7 +136,7 @@ describe("WordModal", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Learning" }));
     await waitFor(() =>
-      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "learning", "en"),
+      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "learning", "en", "book"),
     );
   });
 
@@ -144,7 +145,9 @@ describe("WordModal", () => {
     renderModal();
 
     fireEvent.click(await screen.findByRole("button", { name: "✓ Learning" }));
-    await waitFor(() => expect(api.clearWordStatus).toHaveBeenCalledWith("ocean", "en"));
+    await waitFor(() =>
+      expect(api.clearWordStatus).toHaveBeenCalledWith("ocean", "en", "book"),
+    );
     expect(api.setWordStatus).not.toHaveBeenCalled();
   });
 

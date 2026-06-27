@@ -4,6 +4,13 @@
 export type UserWordStatus = "learning" | "known" | "ignored";
 export type BookStatus = "uploaded" | "processing" | "ready" | "failed";
 
+/**
+ * Which UI surface a status change came from. Only `"learning"` (the Learning page) lets a
+ * learning→known count as a "learned" word; `"book"` (a book's review page) is triage — a
+ * learning→known there is a correction, not a learned word. See the Learned series on /stats.
+ */
+export type WordEventSource = "book" | "learning";
+
 export interface Book {
   id: string;
   title: string;
@@ -14,6 +21,10 @@ export interface Book {
   error: string | null;
   chapterCount: number | null;
   tokenCount: number | null;
+  /** Distinct words (lemmas) in the book, stopwords hidden. */
+  uniqueWords: number;
+  /** Of those, still untriaged (not yet sorted). */
+  wordsToReview: number;
   reviewedAt: string | null;
   createdAt: string;
 }
@@ -243,12 +254,14 @@ export interface TimeseriesPoint {
   /** Words added (first triaged) in this bucket, by current status. */
   learning: number;
   known: number;
+  /** Words learned (moved learning → known from the Learning page) in this bucket. */
+  learned: number;
 }
 
 export interface VocabularyTimeseries {
   granularity: Granularity;
   /** Totals accumulated before the range start (so cumulative charts start from the truth). */
-  baseline: { learning: number; known: number };
+  baseline: { learning: number; known: number; learned: number };
   buckets: TimeseriesPoint[];
 }
 
@@ -266,17 +279,24 @@ export const getVocabTimeseries = (p: TimeseriesParams) =>
 export const setWordStatus = (
   lemma: string,
   status: UserWordStatus,
-  language = "en",
+  language: string,
+  /** Where the change came from — drives the "learned" series. See {@link WordEventSource}. */
+  source: WordEventSource,
 ) =>
   request<{ ok: true; count: number }>("/api/words", {
     method: "POST",
-    body: JSON.stringify({ language, items: [{ lemma, status }] }),
+    body: JSON.stringify({ language, source, items: [{ lemma, status }] }),
   });
 
-export const clearWordStatus = (lemma: string, language = "en") =>
-  request<{ ok: true }>(`/api/words/${encodeURIComponent(lemma)}${qs({ language })}`, {
-    method: "DELETE",
-  });
+export const clearWordStatus = (
+  lemma: string,
+  language: string,
+  source: WordEventSource,
+) =>
+  request<{ ok: true }>(
+    `/api/words/${encodeURIComponent(lemma)}${qs({ language, source })}`,
+    { method: "DELETE" },
+  );
 
 // ── Anki export ────────────────────────────────────────────────────────────────
 

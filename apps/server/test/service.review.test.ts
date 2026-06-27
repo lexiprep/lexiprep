@@ -78,21 +78,26 @@ describe("finishBookReview", () => {
 
 describe("upsertUserWords", () => {
   it("is last-write-wins on conflict", async () => {
-    await upsertUserWords(userId, "en", [{ lemma: "word", status: "learning" }]);
-    await upsertUserWords(userId, "en", [{ lemma: "word", status: "known" }]);
+    await upsertUserWords(userId, "en", [{ lemma: "word", status: "learning" }], "learning");
+    await upsertUserWords(userId, "en", [{ lemma: "word", status: "known" }], "learning");
     expect(await statusOf("word")).toBe("known");
   });
 
   it("dedupes within a single batch (later entry wins)", async () => {
-    await upsertUserWords(userId, "en", [
-      { lemma: "dup", status: "learning" },
-      { lemma: "dup", status: "ignored" },
-    ]);
+    await upsertUserWords(
+      userId,
+      "en",
+      [
+        { lemma: "dup", status: "learning" },
+        { lemma: "dup", status: "ignored" },
+      ],
+      "learning",
+    );
     expect(await statusOf("dup")).toBe("ignored");
   });
 
   it("ignores empty lemmas", async () => {
-    await upsertUserWords(userId, "en", [{ lemma: "   ", status: "known" }]);
+    await upsertUserWords(userId, "en", [{ lemma: "   ", status: "known" }], "learning");
     const all = await listUserWords(userId);
     expect(all).toHaveLength(0);
   });
@@ -104,7 +109,7 @@ describe("deleteUserWord & listUserWords", () => {
     await setUserWord(userId, "en", "drop", "known");
     await setUserWord(userId, "es", "hola", "learning");
 
-    await deleteUserWord(userId, "en", "drop");
+    await deleteUserWord(userId, "en", "drop", "learning");
 
     const en = await listUserWords(userId, { language: "en" });
     expect(en.map((w) => w.lemma)).toEqual(["keep"]);
