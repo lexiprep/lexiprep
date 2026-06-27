@@ -235,6 +235,11 @@ function levelRange(level: SQLWrapper, min?: string, max?: string): SQL[] {
   const out: SQL[] = [];
   if (min) out.push(sql`coalesce(${level}, '') >= ${levelBound(min)}`);
   if (max) out.push(sql`coalesce(${level}, '') <= ${levelBound(max)}`);
+  // A real CEFR ceiling means "A1..max" and must not leak unleveled words: NULL folds
+  // to '' which sorts below A1, so `<= max` would keep them (unlike a real min floor,
+  // which already drops them via `>=`). Unleveled is opt-in only via an explicit `none`
+  // bound (min='—' opts it back in; max='—' selects unleveled exclusively).
+  if (max && max !== UNLEVELED && min !== UNLEVELED) out.push(sql`${level} is not null`);
   return out;
 }
 
