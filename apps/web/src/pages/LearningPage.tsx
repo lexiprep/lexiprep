@@ -70,7 +70,7 @@ export function LearningPage() {
   const [bookId, setBookId] = useState("");
   const [minLevel, setMinLevel] = useState("");
   const [maxLevel, setMaxLevel] = useState("");
-  const [sort, setSort] = useState("added:desc");
+  const [sort, setSort] = useState("count:desc");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [openWord, setOpenWord] = useState<ReviewWord | null>(null);
@@ -310,7 +310,6 @@ export function LearningPage() {
               {sortableTh("word", "Word")}
               {sortableTh("level", "Level")}
               {sortableTh("count", "Count", true)}
-              <th>Book</th>
               <th className="right">Triage</th>
             </tr>
           </thead>
@@ -335,22 +334,6 @@ export function LearningPage() {
                 </td>
                 <td className="right">
                   <span className="num">{w.count.toLocaleString()}</span>
-                </td>
-                <td>
-                  {w.bookTitle ? (
-                    <span className="book-cell">
-                      <span className="book-title-cell" title={w.bookTitle}>
-                        {w.bookTitle}
-                      </span>
-                      {w.bookCount > 1 && (
-                        <span className="count-chip" title={`In ${w.bookCount} books`}>
-                          +{w.bookCount - 1}
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    <span className="muted">—</span>
-                  )}
                 </td>
                 <td className="right">
                   <span className="row-actions">
