@@ -364,7 +364,17 @@ export function BookPage() {
                   {levelLabel ? ` ${levelLabel} ` : " "}
                   {view === "" ? "words" : view === "all" ? "words (all)" : `${view} words`}
                   {" left in this batch"}
-                  {toReview && ` · ${stats.remaining.toLocaleString()} to review in book`}
+                  {/* With a level filter active, the across-book count that matches it —
+                      otherwise the unfiltered "to review" total (also shown in the header). */}
+                  {levelLabel ? (
+                    <>
+                      {" · "}
+                      <strong>{stats.filtered.toLocaleString()}</strong>
+                      {` ${levelLabel} ${toReview ? "to review in book" : "in book"}`}
+                    </>
+                  ) : (
+                    toReview && ` · ${stats.remaining.toLocaleString()} to review in book`
+                  )}
                 </p>
               )}
 
