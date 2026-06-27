@@ -9,6 +9,7 @@ const { user, books, bookWords, bookFiles, userWords, wordLevels, definitions, w
 // Child-first so CASCADE has nothing to complain about; covers every app + auth table.
 const TABLES = [
   "word_notes",
+  "user_word_events",
   "user_words",
   "book_words",
   "book_files",

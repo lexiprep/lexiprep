@@ -24,6 +24,7 @@ import { DateRangePicker } from "./DateRangePicker";
 const LANG = "en";
 const LEARNING_COLOR = "#2563eb"; // blue (matches the Learning badge)
 const KNOWN_COLOR = "#16a34a"; // green (matches the Known badge)
+const LEARNED_COLOR = "#7c3aed"; // violet — words that moved learning → known (Learning page)
 
 const GRANULARITIES: { value: Granularity; label: string }[] = [
   { value: "day", label: "Day" },
@@ -165,6 +166,15 @@ export function VocabularyStats() {
                   dot={false}
                   hide={totalToggle.hidden.has("learningTotal")}
                 />
+                <Line
+                  type="monotone"
+                  dataKey="learnedTotal"
+                  name="Learned"
+                  stroke={LEARNED_COLOR}
+                  strokeWidth={2}
+                  dot={false}
+                  hide={totalToggle.hidden.has("learnedTotal")}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -196,6 +206,13 @@ export function VocabularyStats() {
                   fill={LEARNING_COLOR}
                   radius={[3, 3, 0, 0]}
                   hide={addedToggle.hidden.has("learningAdded")}
+                />
+                <Bar
+                  dataKey="learnedAdded"
+                  name="Learned"
+                  fill={LEARNED_COLOR}
+                  radius={[3, 3, 0, 0]}
+                  hide={addedToggle.hidden.has("learnedAdded")}
                 />
               </BarChart>
             </ResponsiveContainer>

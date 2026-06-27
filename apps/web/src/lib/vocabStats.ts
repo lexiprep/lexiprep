@@ -7,9 +7,12 @@ export interface ChartRow {
   /** Words added in this bucket. */
   learningAdded: number;
   knownAdded: number;
+  /** Words learned (learning → known, Learning page) in this bucket. */
+  learnedAdded: number;
   /** Running totals from the baseline through this bucket. */
   learningTotal: number;
   knownTotal: number;
+  learnedTotal: number;
 }
 
 /**
@@ -20,15 +23,19 @@ export interface ChartRow {
 export function toChartRows(ts: VocabularyTimeseries): ChartRow[] {
   let learning = ts.baseline.learning;
   let known = ts.baseline.known;
+  let learned = ts.baseline.learned;
   return ts.buckets.map((b) => {
     learning += b.learning;
     known += b.known;
+    learned += b.learned;
     return {
       period: b.period,
       learningAdded: b.learning,
       knownAdded: b.known,
+      learnedAdded: b.learned,
       learningTotal: learning,
       knownTotal: known,
+      learnedTotal: learned,
     };
   });
 }

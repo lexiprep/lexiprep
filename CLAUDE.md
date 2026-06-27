@@ -33,6 +33,10 @@ English first, Spanish later. Open source, self-hostable. Full design in `docs/s
 - Default branch `develop`.
 - **Never commit ebooks** — `*.epub` is gitignored; test books are local-only and often
   copyrighted.
+- **Modals must use `<ModalOverlay>`** (`apps/web/src/components/ModalOverlay.tsx`) — never
+  hand-roll a `.modal-overlay` backdrop. It owns the backdrop, click-to-close, and the body
+  scroll lock (`useBodyScrollLock`), so the page behind an open modal can never scroll. This
+  is a hard rule for every current and future modal.
 
 ## Commands
 

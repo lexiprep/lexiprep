@@ -49,10 +49,10 @@ describe("getVocabularyTimeseries", () => {
       granularity: "day",
     });
     // alpha (known, Jan 10) is before the range -> baseline.
-    expect(ts.baseline).toEqual({ learning: 0, known: 1 });
+    expect(ts.baseline).toEqual({ learning: 0, known: 1, learned: 0 });
     expect(ts.buckets).toEqual([
-      { period: "2026-01-12", learning: 1, known: 1 }, // gamma + beta (zeta excluded)
-      { period: "2026-02-05", learning: 1, known: 0 }, // delta
+      { period: "2026-01-12", learning: 1, known: 1, learned: 0 }, // gamma + beta (zeta excluded)
+      { period: "2026-02-05", learning: 1, known: 0, learned: 0 }, // delta
     ]);
   });
 
@@ -62,10 +62,10 @@ describe("getVocabularyTimeseries", () => {
       to: new Date("2026-02-28T00:00:00Z"),
       granularity: "month",
     });
-    expect(ts.baseline).toEqual({ learning: 0, known: 0 });
+    expect(ts.baseline).toEqual({ learning: 0, known: 0, learned: 0 });
     expect(ts.buckets).toEqual([
-      { period: "2026-01-01", learning: 1, known: 2 }, // gamma | alpha + beta
-      { period: "2026-02-01", learning: 1, known: 0 }, // delta
+      { period: "2026-01-01", learning: 1, known: 2, learned: 0 }, // gamma | alpha + beta
+      { period: "2026-02-01", learning: 1, known: 0, learned: 0 }, // delta
     ]);
   });
 

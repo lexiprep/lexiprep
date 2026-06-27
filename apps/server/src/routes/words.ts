@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth/session.js";
-import { USER_WORD_STATUSES, type UserWordStatus } from "../db/schema.js";
+import { USER_WORD_STATUSES, type UserWordStatus, type WordEventSource } from "../db/schema.js";
 import {
   buildAnkiDeck,
   countLearningWords,
@@ -54,6 +54,15 @@ function renderAnkiTsv(cards: DeckCard[]): string {
 
 function isStatus(v: unknown): v is UserWordStatus {
   return typeof v === "string" && (USER_WORD_STATUSES as readonly string[]).includes(v);
+}
+
+/**
+ * Where a status change came from. Only an explicit `"learning"` (the Learning page) lets a
+ * learning→known count as a "learned" word; everything else (book-page triage, unknown
+ * clients, omitted field) defaults to `"book"` so nothing inflates the learned series.
+ */
+function eventSource(v: unknown): WordEventSource {
+  return v === "learning" ? "learning" : "book";
 }
 
 /**
@@ -175,6 +184,7 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       language?: string;
       lemma?: string;
       status?: string;
+      source?: string;
       items?: { lemma?: string; status?: string }[];
     };
     const language = body.language ?? DEFAULT_LANGUAGE;
@@ -201,14 +211,19 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       items.push({ lemma: it.lemma, status: it.status });
     }
 
-    await upsertUserWords(request.user!.id, language, items);
+    await upsertUserWords(request.user!.id, language, items, eventSource(body.source));
     return { ok: true, count: items.length };
   });
 
   app.delete("/words/:lemma", async (request) => {
     const { lemma } = request.params as { lemma: string };
     const q = request.query as Record<string, string | undefined>;
-    await deleteUserWord(request.user!.id, q.language ?? DEFAULT_LANGUAGE, lemma);
+    await deleteUserWord(
+      request.user!.id,
+      q.language ?? DEFAULT_LANGUAGE,
+      lemma,
+      eventSource(q.source),
+    );
     return { ok: true };
   });
 }

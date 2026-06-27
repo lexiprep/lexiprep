@@ -154,7 +154,9 @@ export function LearningPage() {
 
   const mark = useMutation({
     mutationFn: (v: { word: string; status: UserWordStatus }) =>
-      setWordStatus(v.word, v.status, LANG),
+      // The Learning page is the deliberate study surface: a learning→known here is a
+      // genuinely learned word ("learning"-sourced), feeding the Learned series.
+      setWordStatus(v.word, v.status, LANG, "learning"),
     onMutate: (v) => {
       setRemoved((prev) => new Set(prev).add(v.word)); // drop the row optimistically
     },
@@ -387,6 +389,7 @@ export function LearningPage() {
           bookId={openWord.bookId}
           word={openWord.word}
           language={LANG}
+          source="learning"
           initial={{
             word: openWord.word,
             level: openWord.level,
