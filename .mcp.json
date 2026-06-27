@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "lexiprep-db": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@henkey/postgres-mcp-server@1.0.7",
+        "--connection-string",
+        "postgresql://${POSTGRES_USER:-lexiprep}:${POSTGRES_PASSWORD:-lexiprep}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-lexiprep}"
+      ]
+    }
+  }
+}

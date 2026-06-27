@@ -168,7 +168,8 @@ export interface BookListItem extends Book {
 }
 
 /**
- * The user's books, newest first, each enriched with two review-progress counts:
+ * The user's books, most-recently-opened first (never-opened ones by upload time),
+ * each enriched with two review-progress counts:
  * `uniqueWords` (distinct lemma groups, stopwords hidden) and `wordsToReview` (those still
  * untriaged). Computed from `book_words` grouped by base form so they match
  * {@link getBookWordStats}'s `total`/`remaining` exactly. Books with no words yet count 0.
@@ -178,7 +179,8 @@ export async function listBooks(userId: string): Promise<BookListItem[]> {
     .select()
     .from(books)
     .where(eq(books.userId, userId))
-    .orderBy(desc(books.createdAt));
+    // Most-recently-opened first; never-opened books fall back to their upload time.
+    .orderBy(desc(sql`coalesce(${books.lastOpenedAt}, ${books.createdAt})`));
 
   // One row per (book, lemma-group): is it a stopword group, and has it been triaged?
   const grp = db
@@ -228,6 +230,15 @@ export async function getBook(userId: string, bookId: string): Promise<Book | nu
     .where(and(eq(books.id, bookId), eq(books.userId, userId)))
     .limit(1);
   return book ?? null;
+}
+
+/** Record that the user just opened this book, so it sorts to the top of {@link listBooks}. */
+export async function markBookOpened(userId: string, bookId: string): Promise<void> {
+  if (!UUID_RE.test(bookId)) return;
+  await db
+    .update(books)
+    .set({ lastOpenedAt: new Date() })
+    .where(and(eq(books.id, bookId), eq(books.userId, userId)));
 }
 
 export interface WordsQuery {

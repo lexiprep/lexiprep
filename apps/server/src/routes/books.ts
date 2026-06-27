@@ -10,6 +10,7 @@ import {
   getBookWordStats,
   getWordDetail,
   listBooks,
+  markBookOpened,
   reprocessBook,
   reviewBatch,
   setWordNote,
@@ -68,6 +69,8 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       reply.code(404);
       return { error: "Not found" };
     }
+    // Stamp the open so this book sorts to the top of the list next time.
+    await markBookOpened(request.user!.id, book.id);
     return { book };
   });
 
