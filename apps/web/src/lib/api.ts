@@ -14,6 +14,10 @@ export interface Book {
   error: string | null;
   chapterCount: number | null;
   tokenCount: number | null;
+  /** Distinct words (lemmas) in the book, stopwords hidden. */
+  uniqueWords: number;
+  /** Of those, still untriaged (not yet sorted). */
+  wordsToReview: number;
   reviewedAt: string | null;
   createdAt: string;
 }

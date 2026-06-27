@@ -157,12 +157,62 @@ export async function reprocessBook(
   return updated ?? null;
 }
 
-export function listBooks(userId: string): Promise<Book[]> {
-  return db
+export interface BookListItem extends Book {
+  /** Distinct words (lemmas) in the book, stopwords hidden — same as the book page's `total`. */
+  uniqueWords: number;
+  /** Of those, still untriaged (not yet sorted into known/learning/ignored). */
+  wordsToReview: number;
+}
+
+/**
+ * The user's books, newest first, each enriched with two review-progress counts:
+ * `uniqueWords` (distinct lemma groups, stopwords hidden) and `wordsToReview` (those still
+ * untriaged). Computed from `book_words` grouped by base form so they match
+ * {@link getBookWordStats}'s `total`/`remaining` exactly. Books with no words yet count 0.
+ */
+export async function listBooks(userId: string): Promise<BookListItem[]> {
+  const rows = await db
     .select()
     .from(books)
     .where(eq(books.userId, userId))
     .orderBy(desc(books.createdAt));
+
+  // One row per (book, lemma-group): is it a stopword group, and has it been triaged?
+  const grp = db
+    .select({
+      bookId: bookWords.bookId,
+      isStopword: sql<boolean>`bool_or(${bookWords.isStopword})`.as("is_stopword"),
+      triaged: sql<boolean>`bool_or(${userWords.id} is not null)`.as("triaged"),
+    })
+    .from(bookWords)
+    .innerJoin(books, eq(books.id, bookWords.bookId))
+    .leftJoin(
+      userWords,
+      and(
+        eq(userWords.userId, userId),
+        sql`${userWords.language} = ${books.language}`,
+        sql`${userWords.lemma} = ${KEY}`,
+      ),
+    )
+    .where(eq(books.userId, userId))
+    .groupBy(bookWords.bookId, KEY)
+    .as("grp");
+
+  const counts = await db
+    .select({
+      bookId: grp.bookId,
+      uniqueWords: sql<number>`count(*) filter (where ${grp.isStopword} = false)::int`,
+      wordsToReview: sql<number>`count(*) filter (where ${grp.isStopword} = false and ${grp.triaged} = false)::int`,
+    })
+    .from(grp)
+    .groupBy(grp.bookId);
+
+  const byId = new Map(counts.map((c) => [c.bookId, c]));
+  return rows.map((b) => ({
+    ...b,
+    uniqueWords: byId.get(b.id)?.uniqueWords ?? 0,
+    wordsToReview: byId.get(b.id)?.wordsToReview ?? 0,
+  }));
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

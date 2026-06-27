@@ -115,7 +115,8 @@ function BookCard({ book }: { book: Book }) {
       <div className="book-meta muted small">
         {ready && (
           <>
-            <span>{(book.tokenCount ?? 0).toLocaleString()} tokens</span>
+            <span>{(book.uniqueWords ?? 0).toLocaleString()} unique words</span>
+            <span>{(book.wordsToReview ?? 0).toLocaleString()} to review</span>
             {book.reviewedAt && <span className="pill green">reviewed</span>}
           </>
         )}
