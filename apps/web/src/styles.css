@@ -527,6 +527,12 @@ table.words tbody tr:last-child td {
   padding: 10px 14px;
   border-radius: 0 8px 8px 0;
 }
+/* The studied word (and its forms) within the context line. */
+.example .ctx-hl {
+  font-weight: 700;
+  font-style: normal;
+  color: var(--accent);
+}
 .modal-section {
   margin-top: 16px;
 }

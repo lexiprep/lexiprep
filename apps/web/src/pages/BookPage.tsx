@@ -364,13 +364,14 @@ export function BookPage() {
                   {levelLabel ? ` ${levelLabel} ` : " "}
                   {view === "" ? "words" : view === "all" ? "words (all)" : `${view} words`}
                   {" left in this batch"}
-                  {/* With a level filter active, the across-book count that matches it —
-                      otherwise the unfiltered "to review" total (also shown in the header). */}
+                  {/* With a filter active, the across-book count that matches it. Worded as
+                      "match your filter" (not "to review") so it doesn't collide with the
+                      header's unfiltered "to review" total, which stays fixed while filtering. */}
                   {levelLabel ? (
                     <>
                       {" · "}
                       <strong>{stats.filtered.toLocaleString()}</strong>
-                      {` ${levelLabel} ${toReview ? "to review in book" : "in book"}`}
+                      {" match your filter"}
                     </>
                   ) : (
                     toReview && ` · ${stats.remaining.toLocaleString()} to review in book`

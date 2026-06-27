@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -28,6 +28,41 @@ export interface WordModalInitial {
 
 const errMessage = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
+
+// Locate the studied word (and its surface forms) inside the context line so it can be
+// bolded. Mirror @lexiprep/core's tokenizer: a token is a run of letters (any script)
+// with internal apostrophes, normalized by lowercasing, unifying curly apostrophes,
+// dropping a trailing possessive `'s`, and stripping edge apostrophes/hyphens.
+const WORD_RE = /\p{L}[\p{L}\p{M}'’]*/gu;
+
+function normalizeWord(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/’/g, "'")
+    .replace(/'s$/, "")
+    .replace(/^['-]+|['-]+$/g, "");
+}
+
+/** Render a context snippet, bolding every token that is one of `forms`. */
+function highlightForms(text: string, forms: ReadonlySet<string>): ReactNode {
+  if (forms.size === 0) return text;
+  const out: ReactNode[] = [];
+  let last = 0;
+  let key = 0;
+  for (const m of text.matchAll(WORD_RE)) {
+    const start = m.index ?? 0;
+    if (!forms.has(normalizeWord(m[0]))) continue;
+    if (start > last) out.push(text.slice(last, start));
+    out.push(
+      <strong key={key++} className="ctx-hl">
+        {m[0]}
+      </strong>,
+    );
+    last = start + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
 
 export function WordModal({
   bookId,
@@ -127,6 +162,21 @@ export function WordModal({
   const headCount = d?.count ?? initial?.count ?? null;
   const headExample = d?.example ?? initial?.example ?? null;
 
+  // The surface forms to bold in the context line: the lemma plus every form seen in
+  // this book. Falls back to just the word until the detail (with forms) loads.
+  const formSet = useMemo(() => {
+    const s = new Set<string>();
+    const add = (w?: string | null) => {
+      if (!w) return;
+      const n = normalizeWord(w);
+      if (n.length > 1) s.add(n);
+    };
+    add(word);
+    add(headWord);
+    d?.forms.forEach((f) => add(f.word));
+    return s;
+  }, [word, headWord, d?.forms]);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -144,7 +194,9 @@ export function WordModal({
             <StatusBadge status={effectiveStatus} />
           </div>
 
-          {headExample && <p className="example">“{headExample}”</p>}
+          {headExample && (
+            <p className="example">“{highlightForms(headExample, formSet)}”</p>
+          )}
 
           <div className="modal-section">
             <h4>Definition</h4>
