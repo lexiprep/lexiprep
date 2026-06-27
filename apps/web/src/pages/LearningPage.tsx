@@ -396,6 +396,7 @@ export function LearningPage() {
             count: openWord.count,
             status: openWord.status,
             example: openWord.example,
+            bookTitle: openWord.bookTitle,
           }}
           onClose={() => setOpenWord(null)}
         />

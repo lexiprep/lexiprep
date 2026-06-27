@@ -533,6 +533,14 @@ table.words tbody tr:last-child td {
   font-style: normal;
   color: var(--accent);
 }
+/* Which book the context phrase above was pulled from (vocabulary page). */
+.example-source {
+  margin: 4px 0 0;
+  padding-left: 14px;
+}
+.example-source cite {
+  font-style: italic;
+}
 .modal-section {
   margin-top: 16px;
 }
