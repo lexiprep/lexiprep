@@ -33,6 +33,11 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://${POSTGRES_USER:-lexiprep}:${POSTGRES_PASSWORD:-lexiprep}@db:5432/${POSTGRES_DB:-lexiprep}
       CI: "true"
+      # Docker Desktop's WSL2/macOS bind mounts don't forward inotify events, so tsx's
+      # watcher (chokidar) never sees host edits. Poll instead. Native-Linux Docker users,
+      # where inotify works, can set CHOKIDAR_USEPOLLING=false to drop the polling cost.
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
+      CHOKIDAR_INTERVAL: ${CHOKIDAR_INTERVAL:-400}
     working_dir: /workspace/lexiprep/apps/server
     # node_modules live in named volumes (not the host's, which is built against a
     # different pnpm store). The server is the sole installer; it populates the
@@ -69,6 +74,9 @@ services:
         condition: service_healthy
     environment:
       PROXY_TARGET: http://server:3000
+      # Same bind-mount inotify gap as the server — make Vite poll so HMR sees host edits.
+      CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
+      CHOKIDAR_INTERVAL: ${CHOKIDAR_INTERVAL:-400}
     working_dir: /workspace/lexiprep/apps/web
     # No install here — the server already populated the shared node_modules volumes.
     command: sh -c "pnpm dev"
