@@ -64,7 +64,25 @@ describe("WordModal", () => {
     expect(
       await screen.findByText("a large body of salt water"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/the deep ocean/)).toBeInTheDocument();
+    // The example renders with the studied word bolded (so it splits "the deep" / "ocean").
+    expect(screen.getByText(/the deep/)).toBeInTheDocument();
+    expect(screen.getByText("ocean", { selector: ".ctx-hl" })).toBeInTheDocument();
+  });
+
+  it("bolds the studied word and its surface forms in the context line", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(
+      detail({
+        example: "the deep oceans and the calm ocean",
+        forms: [
+          { word: "ocean", count: 8, example: null },
+          { word: "oceans", count: 2, example: null },
+        ],
+      }),
+    );
+    renderModal();
+
+    const bolded = await screen.findAllByText(/oceans?/, { selector: ".ctx-hl" });
+    expect(bolded.map((n) => n.textContent)).toEqual(["oceans", "ocean"]);
   });
 
   it("paints the row data instantly and loads the definition in parallel", () => {
@@ -80,7 +98,7 @@ describe("WordModal", () => {
 
     expect(screen.getByRole("heading", { name: "ocean" })).toBeInTheDocument();
     expect(screen.getByText("B1")).toBeInTheDocument();
-    expect(screen.getByText(/the deep ocean/)).toBeInTheDocument();
+    expect(screen.getByText(/the deep/)).toBeInTheDocument();
     expect(screen.getByText("Loading…")).toBeInTheDocument(); // definition still pending
   });
 
