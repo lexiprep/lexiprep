@@ -202,7 +202,17 @@ describe("/api/words vocabulary management", () => {
       method: "POST",
       url: "/api/words",
       headers: { cookie: alice.cookie, "content-type": "application/json" },
-      payload: { items: [{ lemma: "x", status: "bogus" }] },
+      payload: { items: [{ lemma: "cat", status: "bogus" }] },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects a single-character lemma with 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/words",
+      headers: { cookie: alice.cookie, "content-type": "application/json" },
+      payload: { items: [{ lemma: "x", status: "learning" }] },
     });
     expect(res.statusCode).toBe(400);
   });

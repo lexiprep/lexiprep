@@ -38,7 +38,7 @@ services:
     # different pnpm store). The server is the sole installer; it populates the
     # shared apps/web volume too, so web just runs vite. @lexiprep/core comes from
     # npm, so no sibling checkout is needed.
-    command: sh -c "pnpm install --frozen-lockfile && pnpm db:push && pnpm db:seed && pnpm dev"
+    command: sh -c "pnpm install --frozen-lockfile && pnpm db:push && pnpm db:migrate && pnpm db:seed && pnpm dev"
     volumes:
       - ./:/workspace/lexiprep
       - nm_root:/workspace/lexiprep/node_modules

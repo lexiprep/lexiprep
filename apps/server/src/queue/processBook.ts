@@ -70,15 +70,19 @@ export async function processBook(
     });
     const lang = baseLanguage(parsed.metadata.language);
 
-    const rows = analysis.frequencies.map((f) => ({
-      bookId,
-      word: f.word,
-      lemma: f.lemma ?? null,
-      count: f.count,
-      isStopword: ENGLISH_STOPWORDS.has(f.word),
-      properNoun: f.properNoun ?? null,
-      example: f.example ?? null,
-    }));
+    const rows = analysis.frequencies
+      // Single-character "words" aren't worth tracking. @lexiprep/core drops these at
+      // tokenization (>=0.5.0); this guard keeps the rule even on an older core.
+      .filter((f) => f.word.length > 1)
+      .map((f) => ({
+        bookId,
+        word: f.word,
+        lemma: f.lemma ?? null,
+        count: f.count,
+        isStopword: ENGLISH_STOPWORDS.has(f.word),
+        properNoun: f.properNoun ?? null,
+        example: f.example ?? null,
+      }));
 
     await db.transaction(async (tx) => {
       await tx.delete(bookWords).where(eq(bookWords.bookId, bookId));

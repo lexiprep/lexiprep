@@ -115,6 +115,16 @@ push a `vX.Y.Z` tag → the release workflow publishes to npm via OIDC; then bum
   a toolbar **View** select (To review / All words / Known / Learning / Ignored) shows any
   subset at any time — and is always visible (so "All words" escapes the junk gate). Replaced
   the old `includeTriaged` checkbox; `includeTriaged=true` kept as a server alias for `all`.
+- **Single-character words dropped** done: single-char tokens ("a"/"I", OCR/list debris,
+  split clitics) aren't words. `@lexiprep/core` **>=0.5.0** filters them in the tokenizer
+  (so frequencies/examples/proper-noun stats/token count all skip them); `processBook` and
+  `POST /api/words` also guard against them app-side. Introduced a **tracked drizzle data
+  migration** (`apps/server/drizzle/0000_cleanup_single_char_words.sql`, journaled via
+  `drizzle.__drizzle_migrations` → runs once per env) deleting single-char rows from
+  `book_words`/`user_words`/`word_notes`. **`pnpm db:migrate`** now runs on startup after
+  `db:push` (docker-compose dev `command` + prod `make migrate`). This is the first use of
+  drizzle's migrate journal — schema is still managed by `db:push`; `drizzle/` is for
+  data/one-off migrations only.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

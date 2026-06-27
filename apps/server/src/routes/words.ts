@@ -190,6 +190,10 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
         reply.code(400);
         return { error: "Each item needs a non-empty `lemma`" };
       }
+      if (it.lemma.trim().length < 2) {
+        reply.code(400);
+        return { error: "A `lemma` must be at least 2 characters" };
+      }
       if (!isStatus(it.status)) {
         reply.code(400);
         return { error: `status must be one of ${USER_WORD_STATUSES.join(", ")}` };
