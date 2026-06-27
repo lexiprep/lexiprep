@@ -26,6 +26,7 @@ export interface Book {
   /** Of those, still untriaged (not yet sorted). */
   wordsToReview: number;
   reviewedAt: string | null;
+  lastOpenedAt: string | null;
   createdAt: string;
 }
 

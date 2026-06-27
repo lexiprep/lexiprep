@@ -45,6 +45,8 @@ export const books = pgTable("books", {
   tokenCount: integer("token_count"),
   /** Set when the user has triaged this book's unique words. */
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  /** Stamped each time the user opens this book; most-recently-opened sorts the list first. */
+  lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
