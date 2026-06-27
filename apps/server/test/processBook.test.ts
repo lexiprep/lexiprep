@@ -116,6 +116,17 @@ describe("processBook", () => {
     expect(updated!.error).toBeTruthy();
   });
 
+  it("never persists single-character words", async () => {
+    const book = await createBook(userId, { status: "uploaded" });
+    // "I" and "a" are single-character tokens — not words worth tracking.
+    await addBookFile(book.id, await makeEpub("<p>I saw a fox. A fox ran.</p>"));
+    await processBook(book.id, logger);
+
+    expect(await wordRow(book.id, "i")).toBeUndefined();
+    expect(await wordRow(book.id, "a")).toBeUndefined();
+    expect((await wordRow(book.id, "fox"))!.count).toBe(2);
+  });
+
   it("is idempotent — re-running replaces prior words", async () => {
     const book = await createBook(userId, { status: "uploaded" });
     await addBookFile(book.id, await makeEpub("<p>The fox ran fast.</p>"));

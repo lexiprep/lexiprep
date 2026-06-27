@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import {
   keepPreviousData,
   useMutation,
@@ -143,14 +144,38 @@ export function LearningPage() {
   const stats = wordsQ.data?.stats;
   const hasMore = rows.length === pageSize;
 
+  // Words moved this session — hidden instantly on click so the table never waits on the
+  // request. Cleared whenever the underlying query changes (new page/filter/status).
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setRemoved(new Set());
+  }, [status, pageIndex, bookId, minLevel, maxLevel, sort, search]);
+  const visibleRows = rows.filter((r) => !removed.has(r.word));
+
   const mark = useMutation({
     mutationFn: (v: { word: string; status: UserWordStatus }) =>
       setWordStatus(v.word, v.status, LANG),
+    onMutate: (v) => {
+      setRemoved((prev) => new Set(prev).add(v.word)); // drop the row optimistically
+    },
     onSuccess: () => {
       // The word leaves the current list, and book review tables reflect the new status.
       qc.invalidateQueries({ queryKey: ["review"] });
       qc.invalidateQueries({ queryKey: ["words"] });
       qc.invalidateQueries({ queryKey: ["vocab-counts"] });
+    },
+    onError: (err, v) => {
+      // Restore the row — the move didn't take.
+      setRemoved((prev) => {
+        const next = new Set(prev);
+        next.delete(v.word);
+        return next;
+      });
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : `Couldn't move “${v.word}” to ${v.status}.`,
+      );
     },
   });
 
@@ -290,7 +315,7 @@ export function LearningPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((w) => (
+            {visibleRows.map((w) => (
               <tr key={w.word}>
                 <td>
                   {w.bookId ? (
@@ -333,7 +358,6 @@ export function LearningPage() {
                       <button
                         key={s}
                         className={`btn ${STATUS_META[s].cls} slim`}
-                        disabled={mark.isPending}
                         onClick={() => mark.mutate({ word: w.word, status: s })}
                       >
                         {STATUS_META[s].label}
@@ -380,6 +404,13 @@ export function LearningPage() {
           bookId={openWord.bookId}
           word={openWord.word}
           language={LANG}
+          initial={{
+            word: openWord.word,
+            level: openWord.level,
+            count: openWord.count,
+            status: openWord.status,
+            example: openWord.example,
+          }}
           onClose={() => setOpenWord(null)}
         />
       )}

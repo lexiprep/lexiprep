@@ -82,9 +82,20 @@ describe("getBookWords — level filtering", () => {
     expect(words).not.toContain("zeus"); // unleveled excluded by a bound
   });
 
-  it("maxLevel keeps words at or below the level", async () => {
+  it("maxLevel keeps words at or below the level (excludes unleveled)", async () => {
     const words = (await getBookWords(userId, book, { maxLevel: "A2" })).map((r) => r.word);
     expect(words).toEqual(expect.arrayContaining(["say", "run"]));
+    expect(words).not.toContain("suitor"); // C1 above A2
+    // A CEFR ceiling must not leak unleveled words — NULL folds to '' which sorts below
+    // A1, so `<= A2` would otherwise keep them. Unleveled is opt-in via `none` only.
+    expect(words).not.toContain("zeus");
+  });
+
+  it("a `none` floor opts unleveled back in under a CEFR ceiling", async () => {
+    const words = (
+      await getBookWords(userId, book, { minLevel: "none", maxLevel: "A2" })
+    ).map((r) => r.word);
+    expect(words).toEqual(expect.arrayContaining(["zeus", "say", "run"]));
     expect(words).not.toContain("suitor"); // C1 above A2
   });
 

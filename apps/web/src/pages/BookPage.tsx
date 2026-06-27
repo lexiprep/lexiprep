@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import {
   keepPreviousData,
   useMutation,
@@ -51,7 +52,7 @@ export function BookPage() {
   // Words triaged within the current loaded batch — hidden locally so the batch shrinks
   // as you work it, without pulling in new words (the user reviews a fixed batch).
   const [triaged, setTriaged] = useState<Set<string>>(new Set());
-  const [openWord, setOpenWord] = useState<string | null>(null);
+  const [openWord, setOpenWord] = useState<BookWordRow | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmComplete, setConfirmComplete] = useState(false);
 
@@ -110,6 +111,19 @@ export function BookPage() {
       qc.invalidateQueries({ queryKey: ["book", id] });
       qc.invalidateQueries({ queryKey: ["review"] });
     },
+    onError: (err, v) => {
+      // The row was hidden optimistically — bring it back so the table reflects reality.
+      setTriaged((prev) => {
+        const next = new Set(prev);
+        next.delete(v.word);
+        return next;
+      });
+      toast.error(
+        err instanceof Error && err.message
+          ? err.message
+          : `Couldn't mark “${v.word}” as ${v.status}.`,
+      );
+    },
   });
   // Mark a word and remove it from the current batch locally (no refetch, no refill).
   const markWord = (word: string, status: UserWordStatus) => {
@@ -130,7 +144,7 @@ export function BookPage() {
             <button
               className="word-link"
               title={`${w.count}× · ${w.level ?? "no level"}`}
-              onClick={() => setOpenWord(w.word)}
+              onClick={() => setOpenWord(w)}
             >
               {w.word}
             </button>
@@ -209,6 +223,8 @@ export function BookPage() {
     setPageIndex(0);
     qc.invalidateQueries({ queryKey: ["words", id] });
     qc.invalidateQueries({ queryKey: ["book", id] });
+    // Land back at the top so the next batch starts from the first row.
+    window.scrollTo({ top: 0 });
   };
   const finish = useMutation({
     mutationFn: () => finishBook(id),
@@ -348,7 +364,17 @@ export function BookPage() {
                   {levelLabel ? ` ${levelLabel} ` : " "}
                   {view === "" ? "words" : view === "all" ? "words (all)" : `${view} words`}
                   {" left in this batch"}
-                  {toReview && ` · ${stats.remaining.toLocaleString()} to review in book`}
+                  {/* With a level filter active, the across-book count that matches it —
+                      otherwise the unfiltered "to review" total (also shown in the header). */}
+                  {levelLabel ? (
+                    <>
+                      {" · "}
+                      <strong>{stats.filtered.toLocaleString()}</strong>
+                      {` ${levelLabel} ${toReview ? "to review in book" : "in book"}`}
+                    </>
+                  ) : (
+                    toReview && ` · ${stats.remaining.toLocaleString()} to review in book`
+                  )}
                 </p>
               )}
 
@@ -511,8 +537,9 @@ export function BookPage() {
       {openWord && book && (
         <WordModal
           bookId={id}
-          word={openWord}
+          word={openWord.word}
           language={book.language}
+          initial={openWord}
           onClose={() => setOpenWord(null)}
         />
       )}

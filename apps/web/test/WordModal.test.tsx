@@ -2,8 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { WordModal } from "../src/components/WordModal";
+import { WordModal, type WordModalInitial } from "../src/components/WordModal";
 import * as api from "../src/lib/api";
+import { toast } from "sonner";
 import type { WordDetail } from "../src/lib/api";
 
 vi.mock("../src/lib/api", () => ({
@@ -13,6 +14,8 @@ vi.mock("../src/lib/api", () => ({
   setWordNote: vi.fn(),
   deleteWordNote: vi.fn(),
 }));
+
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
   word: "ocean",
@@ -27,13 +30,19 @@ const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
   ...over,
 });
 
-function renderModal() {
+function renderModal(initial?: WordModalInitial) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
   return render(
-    <WordModal bookId="book-1" word="ocean" language="en" onClose={vi.fn()} />,
+    <WordModal
+      bookId="book-1"
+      word="ocean"
+      language="en"
+      initial={initial}
+      onClose={vi.fn()}
+    />,
     { wrapper },
   );
 }
@@ -51,9 +60,55 @@ describe("WordModal", () => {
     renderModal();
 
     expect(await screen.findByRole("heading", { name: "ocean" })).toBeInTheDocument();
-    expect(screen.getByText("B1")).toBeInTheDocument();
-    expect(screen.getByText("a large body of salt water")).toBeInTheDocument();
+    expect(await screen.findByText("B1")).toBeInTheDocument();
+    expect(
+      await screen.findByText("a large body of salt water"),
+    ).toBeInTheDocument();
     expect(screen.getByText(/the deep ocean/)).toBeInTheDocument();
+  });
+
+  it("paints the row data instantly and loads the definition in parallel", () => {
+    // The detail request never resolves: the modal must still show what the row knows.
+    vi.mocked(api.getWordDetail).mockReturnValue(new Promise<WordDetail>(() => {}));
+    renderModal({
+      word: "ocean",
+      level: "B1",
+      count: 8,
+      status: null,
+      example: "the deep ocean",
+    });
+
+    expect(screen.getByRole("heading", { name: "ocean" })).toBeInTheDocument();
+    expect(screen.getByText("B1")).toBeInTheDocument();
+    expect(screen.getByText(/the deep ocean/)).toBeInTheDocument();
+    expect(screen.getByText("Loading…")).toBeInTheDocument(); // definition still pending
+  });
+
+  it("reflects the new status instantly when a button is clicked", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: null }));
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Known" }));
+    // Optimistic: the button shows active immediately, without awaiting the request.
+    expect(screen.getByRole("button", { name: "✓ Known" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "known", "en"),
+    );
+  });
+
+  it("resets the button and toasts when the request fails", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: null }));
+    vi.mocked(api.setWordStatus).mockRejectedValue(new Error("network down"));
+    renderModal();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Known" }));
+    expect(screen.getByRole("button", { name: "✓ Known" })).toBeInTheDocument();
+
+    // On failure the optimistic state rolls back and a toast is shown.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Known" })).toBeInTheDocument(),
+    );
+    expect(toast.error).toHaveBeenCalledWith("network down");
   });
 
   it("marks a word as learning when its status is unset", async () => {

@@ -32,8 +32,8 @@ install: ## [prod] Install/update node_modules into the persisted volumes (run w
 	$(PROD) build
 	$(PROD) run --rm --no-deps server pnpm install --frozen-lockfile
 
-migrate: ## [prod] Apply schema changes to the database (drizzle-kit push)
-	$(PROD) run --rm server pnpm db:push
+migrate: ## [prod] Sync schema (drizzle-kit push) then run data migrations (drizzle-kit migrate)
+	$(PROD) run --rm server sh -c "pnpm db:push && pnpm db:migrate"
 
 seed: ## [prod] Seed CEFR word levels (one-time; idempotent, re-run if the wordlist changes)
 	$(PROD) run --rm server pnpm db:seed

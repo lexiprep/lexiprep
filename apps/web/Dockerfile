@@ -2,6 +2,8 @@
 FROM node:24-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
+# Let corepack fetch the pinned pnpm without an interactive "Do you want to continue?" prompt.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /workspace/lexiprep/apps/web
 
