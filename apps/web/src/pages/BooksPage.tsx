@@ -25,6 +25,14 @@ export function BooksPage() {
         : false,
   });
 
+  // Books seen mid-processing this session. A book that finishes while you watch shows
+  // "ready" once (it's in this set); a book already ready on load never enters it, so its
+  // status pill stays hidden — once processed, a book is obviously ready.
+  const seenPending = useRef<Set<string>>(new Set());
+  for (const b of books.data ?? []) {
+    if (b.status === "uploaded" || b.status === "processing") seenPending.current.add(b.id);
+  }
+
   const upload = useMutation({
     mutationFn: uploadBook,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["books"] }),
@@ -71,7 +79,11 @@ export function BooksPage() {
       ) : books.data && books.data.length > 0 ? (
         <div className="book-grid">
           {books.data.map((b) => (
-            <BookCard key={b.id} book={b} />
+            <BookCard
+              key={b.id}
+              book={b}
+              showStatus={b.status !== "ready" || seenPending.current.has(b.id)}
+            />
           ))}
         </div>
       ) : (
@@ -81,7 +93,7 @@ export function BooksPage() {
   );
 }
 
-function BookCard({ book }: { book: Book }) {
+function BookCard({ book, showStatus }: { book: Book; showStatus: boolean }) {
   const ready = book.status === "ready";
   return (
     <div className={`card book-card${ready ? " linkcard" : ""}`}>
@@ -97,7 +109,7 @@ function BookCard({ book }: { book: Book }) {
       <div className="book-card-top">
         <h3>{book.title}</h3>
         <div className="book-card-actions">
-          <StatusPill status={book.status} />
+          {showStatus && <StatusPill status={book.status} />}
           <Link
             to={`/books/${book.id}/settings`}
             className="card-gear"
