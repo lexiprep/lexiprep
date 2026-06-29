@@ -30,7 +30,10 @@ const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
   ...over,
 });
 
-function renderModal(initial?: WordModalInitial) {
+function renderModal(
+  initial?: WordModalInitial,
+  onStatusChange?: (word: string, status: api.UserWordStatus | null) => void,
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
@@ -42,6 +45,7 @@ function renderModal(initial?: WordModalInitial) {
       language="en"
       source="book"
       initial={initial}
+      onStatusChange={onStatusChange}
       onClose={vi.fn()}
     />,
     { wrapper },
@@ -149,6 +153,55 @@ describe("WordModal", () => {
       expect(api.clearWordStatus).toHaveBeenCalledWith("ocean", "en", "book"),
     );
     expect(api.setWordStatus).not.toHaveBeenCalled();
+  });
+
+  // The host (e.g. the book page) owns its word list and freezes the review batch. The modal
+  // must hand it a status change via onStatusChange — and never refetch the list itself — so
+  // marking a word from the modal drops it from the batch without pulling new words in.
+  it("notifies the host via onStatusChange after a status change succeeds", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: null }));
+    const onStatusChange = vi.fn();
+    renderModal(undefined, onStatusChange);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Known" }));
+    await waitFor(() =>
+      expect(onStatusChange).toHaveBeenCalledWith("ocean", "known"),
+    );
+  });
+
+  it("notifies the host with null when the status is cleared (toggle off)", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: "learning" }));
+    const onStatusChange = vi.fn();
+    renderModal(undefined, onStatusChange);
+
+    fireEvent.click(await screen.findByRole("button", { name: "✓ Learning" }));
+    await waitFor(() =>
+      expect(onStatusChange).toHaveBeenCalledWith("ocean", null),
+    );
+  });
+
+  it("does NOT notify the host when the status change fails", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ status: null }));
+    vi.mocked(api.setWordStatus).mockRejectedValue(new Error("network down"));
+    const onStatusChange = vi.fn();
+    renderModal(undefined, onStatusChange);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Known" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(onStatusChange).not.toHaveBeenCalled();
+  });
+
+  it("does NOT notify the host when only a note is saved", async () => {
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ note: null }));
+    const onStatusChange = vi.fn();
+    renderModal(undefined, onStatusChange);
+
+    const textarea = await screen.findByPlaceholderText(/Add a meaning/i);
+    fireEvent.change(textarea, { target: { value: "god of the sea here" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+
+    await waitFor(() => expect(api.setWordNote).toHaveBeenCalled());
+    expect(onStatusChange).not.toHaveBeenCalled();
   });
 
   it("saves a per-book note", async () => {
