@@ -24,12 +24,13 @@ import {
   type UserWordStatus,
 } from "../lib/api";
 import { levelRangeLabel } from "../lib/levels";
+import { usePersistentState } from "../lib/usePersistentState";
 import { LevelBadge, StatusBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
-const PAGE_SIZES = [20, 50, 100];
+const PAGE_SIZES = [10, 20, 50, 100];
 
 // Per-row triage buttons (replaces the old flag-as-new checkbox + batch actions).
 const TRIAGE: { status: UserWordStatus; label: string; cls: string }[] = [
@@ -42,13 +43,19 @@ export function BookPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
 
-  const [pageSize, setPageSize] = useState(50);
+  // Filters/sort/page-size are remembered per book (keyed by id), so reopening a book
+  // resumes its last view. pageIndex stays ephemeral — batches shift as words are triaged,
+  // so a saved index would often land on a stale batch.
+  const k = (name: string) => (id ? `lexiprep.book.${id}.${name}` : null);
+  const [pageSize, setPageSize] = usePersistentState(k("pageSize"), 50);
   const [pageIndex, setPageIndex] = useState(0);
-  const [sorting, setSorting] = useState<SortingState>([{ id: "count", desc: true }]);
-  const [minLevel, setMinLevel] = useState("");
-  const [maxLevel, setMaxLevel] = useState("");
+  const [sorting, setSorting] = usePersistentState<SortingState>(k("sort"), [
+    { id: "count", desc: true },
+  ]);
+  const [minLevel, setMinLevel] = usePersistentState(k("minLevel"), "");
+  const [maxLevel, setMaxLevel] = usePersistentState(k("maxLevel"), "");
   // "" = to review (untriaged, default); "all" / known / learning / ignored otherwise.
-  const [view, setView] = useState("");
+  const [view, setView] = usePersistentState(k("view"), "");
   // Words triaged within the current loaded batch — hidden locally so the batch shrinks
   // as you work it, without pulling in new words (the user reviews a fixed batch).
   const [triaged, setTriaged] = useState<Set<string>>(new Set());

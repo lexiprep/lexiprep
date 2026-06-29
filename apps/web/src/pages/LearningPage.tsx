@@ -15,13 +15,14 @@ import {
   type UserWordStatus,
 } from "../lib/api";
 import { levelRangeLabel } from "../lib/levels";
+import { usePersistentState } from "../lib/usePersistentState";
 import { LevelBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
 import { ExportModal } from "../components/ExportModal";
 
 const LANG = "en";
-const PAGE_SIZES = [20, 50, 100];
+const PAGE_SIZES = [10, 20, 50, 100];
 
 const SORT_OPTIONS = [
   { value: "added:desc", label: "Recently added" },
@@ -64,13 +65,15 @@ const ALL_STATUSES: UserWordStatus[] = ["learning", "known", "ignored"];
 export function LearningPage() {
   const qc = useQueryClient();
 
-  const [status, setStatus] = useState<UserWordStatus>("learning");
-  const [pageSize, setPageSize] = useState(50);
+  // Vocabulary filters/sort/page-size persist across visits (single page → one shared key).
+  const vk = (name: string) => `lexiprep.vocab.${name}`;
+  const [status, setStatus] = usePersistentState<UserWordStatus>(vk("status"), "learning");
+  const [pageSize, setPageSize] = usePersistentState(vk("pageSize"), 50);
   const [pageIndex, setPageIndex] = useState(0);
-  const [bookId, setBookId] = useState("");
-  const [minLevel, setMinLevel] = useState("");
-  const [maxLevel, setMaxLevel] = useState("");
-  const [sort, setSort] = useState("count:desc");
+  const [bookId, setBookId] = usePersistentState(vk("bookId"), "");
+  const [minLevel, setMinLevel] = usePersistentState(vk("minLevel"), "");
+  const [maxLevel, setMaxLevel] = usePersistentState(vk("maxLevel"), "");
+  const [sort, setSort] = usePersistentState(vk("sort"), "count:desc");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [openWord, setOpenWord] = useState<ReviewWord | null>(null);
