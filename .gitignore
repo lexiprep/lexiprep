@@ -28,3 +28,6 @@ uploads/
 *.epub
 *.pdf
 /samples/
+
+# design / strategy notes — kept local, not in the public repo
+docs/specs/
