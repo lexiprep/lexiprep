@@ -75,6 +75,7 @@ export function WordModal({
   language,
   source,
   initial,
+  onStatusChange,
   onClose,
 }: {
   bookId: string;
@@ -85,6 +86,12 @@ export function WordModal({
   source: WordEventSource;
   /** Row data shown instantly; the full detail (definition, note, forms) loads in parallel. */
   initial?: WordModalInitial;
+  /** Called after a status change (mark or clear) succeeds. Lets a host with a frozen
+   * review batch reconcile its own list — e.g. drop the row — WITHOUT this modal refetching
+   * the host's word list, which would pull new words in mid-review. The modal deliberately
+   * never invalidates `["words", …]`; the host owns that list and routes every triage
+   * button (per-row and this modal) through one shared "freeze the batch" path. */
+  onStatusChange?: (word: string, status: UserWordStatus | null) => void;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -93,12 +100,19 @@ export function WordModal({
     queryFn: () => getWordDetail(bookId, word),
   });
 
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["words", bookId] });
+  // A status change touches this word's own detail, the book header counts, and the
+  // cross-book vocabulary list — but deliberately NOT the host's ["words", …] batch, which
+  // stays frozen. The host reconciles its own list via onStatusChange. This mirrors the
+  // book page's per-row triage exactly, so no button (now or later) can reset the batch.
+  const afterStatusChange = (status: UserWordStatus | null) => {
     qc.invalidateQueries({ queryKey: ["word", bookId, word] });
-    // Keep the cross-book learning list in sync when status changes from the modal.
+    qc.invalidateQueries({ queryKey: ["book", bookId] });
     qc.invalidateQueries({ queryKey: ["review"] });
+    onStatusChange?.(word, status);
   };
+  // Notes never change any word list — only this word's detail. Refresh just that, so saving
+  // a note from the book page can't disturb the frozen review batch either.
+  const refreshDetail = () => qc.invalidateQueries({ queryKey: ["word", bookId, word] });
 
   const d = detail.data;
 
@@ -120,19 +134,20 @@ export function WordModal({
 
   const mark = useMutation({
     mutationFn: (status: UserWordStatus) => setWordStatus(word, status, language, source),
+    // Reconcile only on success — a failed write must not drop the row from the host batch.
+    onSuccess: (_data, status) => afterStatusChange(status),
     onError: (err) => {
       setPending(undefined); // reset the button to the server's actual state
       toast.error(errMessage(err, `Couldn't update “${word}”.`));
     },
-    onSettled: invalidate,
   });
   const clear = useMutation({
     mutationFn: () => clearWordStatus(word, language, source),
+    onSuccess: () => afterStatusChange(null),
     onError: (err) => {
       setPending(undefined);
       toast.error(errMessage(err, `Couldn't update “${word}”.`));
     },
-    onSettled: invalidate,
   });
 
   // Apply the new status optimistically, then fire the request in parallel.
@@ -153,14 +168,14 @@ export function WordModal({
 
   const saveNote = useMutation({
     mutationFn: () => setWordNote(bookId, word, noteText.trim()),
-    onSuccess: invalidate,
+    onSuccess: refreshDetail,
     onError: (err) => toast.error(errMessage(err, "Couldn't save your note.")),
   });
   const removeNote = useMutation({
     mutationFn: () => deleteWordNote(bookId, word),
     onSuccess: () => {
       setNoteText("");
-      invalidate();
+      refreshDetail();
     },
     onError: (err) => toast.error(errMessage(err, "Couldn't remove your note.")),
   });

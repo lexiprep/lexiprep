@@ -134,9 +134,16 @@ export function BookPage() {
       );
     },
   });
-  // Mark a word and remove it from the current batch locally (no refetch, no refill).
-  const markWord = (word: string, status: UserWordStatus) => {
+  // Freeze-the-batch primitive: hide a word from the loaded batch locally, with no refetch
+  // and no refill, so nothing new slides in mid-review. This is the single place triage
+  // touches the batch — every triage button routes through it: the per-row buttons (via
+  // markWord) and the word modal (via its onStatusChange), now and in future.
+  const hideFromBatch = (word: string) =>
     setTriaged((prev) => new Set(prev).add(word));
+  // Mark a word from a per-row button and drop it from the current batch (the modal instead
+  // runs its own mutation and calls hideFromBatch on success).
+  const markWord = (word: string, status: UserWordStatus) => {
+    hideFromBatch(word);
     markStatus.mutate({ word, status });
   };
   const markWordRef = useRef(markWord);
@@ -551,6 +558,9 @@ export function BookPage() {
           language={book.language}
           source="book"
           initial={openWord}
+          // Same freeze-the-batch path as the per-row buttons: a status change in the modal
+          // drops the word from the current batch without pulling new words in.
+          onStatusChange={(word) => hideFromBatch(word)}
           onClose={() => setOpenWord(null)}
         />
       )}
