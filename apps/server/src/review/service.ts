@@ -4,7 +4,7 @@
 // background scheduler. Grading runs `nextReview()` inline and writes the row + a
 // `reviewLog` entry in one transaction.
 
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
   definitions,
@@ -59,6 +59,12 @@ export interface SessionCounts {
   remaining: number;
   /** Full due backlog (≥ `due`); powers the "N more due" hint when truncated by the cap. */
   totalDue: number;
+  /**
+   * New cards already introduced today (first-reviewed on the current local day). The daily
+   * new budget is `newPerDay − newDoneToday`, so re-entering the session never hands out a
+   * fresh `newPerDay` — and it lets the UI show "N / newPerDay introduced today".
+   */
+  newDoneToday: number;
 }
 
 export interface ReviewSession {
@@ -75,6 +81,8 @@ export interface SessionOptions {
   maxLevel?: string;
   newPerDay: number;
   maxPerDay: number;
+  /** IANA zone for the day boundary (due-by-day, "introduced today"); defaults to UTC. */
+  timezone?: string;
 }
 
 export interface GradeOptions {
@@ -209,10 +217,23 @@ function cardSelect(agg: ReturnType<typeof reviewBookAgg>) {
 // ── Session assembly ─────────────────────────────────────────────────────────
 
 /**
- * Build today's session: all due learning cards (overdue first), then up to `newPerDay`
- * never-reviewed cards drawn highest-frequency-first from the (optionally book/level
- * filtered) Learning list, the whole thing capped at `maxPerDay`. Each card carries its
- * four button labels (`preview`), seeded so the label equals what grading will schedule.
+ * Build today's session: due learning cards from previous days (overdue first), then the
+ * day's remaining new-card budget drawn highest-frequency-first from the (optionally
+ * book/level filtered) Learning list, the whole thing capped at `maxPerDay`. Each card
+ * carries its four button labels (`preview`), seeded so the label equals what grading will
+ * schedule.
+ *
+ * Two day-boundary rules, both anchored on the user's local day (`opts.timezone`):
+ *  - **Due means a previous day reached today, not "any timestamp in the past".** A card is
+ *    due when its `srsDue` calendar day is today-or-earlier *and* it was not reviewed today.
+ *    So a sub-day learning step bumped a few minutes ahead (e.g. Again → +1m) no longer
+ *    re-surfaces as "due" after you exit — you already studied it today.
+ *  - **The new budget is `newPerDay − (new cards introduced today)`, not a flat `newPerDay`
+ *    every open.** Once today's new cards are introduced they leave the never-reviewed pool
+ *    and count against the budget, so exit→re-enter can't hand out a fresh `newPerDay`. The
+ *    budget is global (counts new cards introduced under any filter), and the remaining slots
+ *    are re-derived live from the *current* filter — so changing the filter or lowering
+ *    `newPerDay` mid-day trims the not-yet-introduced remainder.
  */
 export async function buildSession(
   userId: string,
@@ -225,6 +246,18 @@ export async function buildSession(
   const aggAll = reviewBookAgg(userId, language, undefined);
   const aggNew = reviewBookAgg(userId, language, opts.bookId);
 
+  // Local-day arithmetic for the due/introduced-today boundaries (see the two rules above).
+  // `now` is bound as an ISO string, not a raw Date: the postgres-js driver can't serialize a
+  // bare Date param for the `::timestamptz` cast (pglite, used in tests, silently can).
+  const tzRaw = sql.raw(tzLiteral(opts.timezone ?? "UTC"));
+  const today = sql`(${now.toISOString()}::timestamptz at time zone ${tzRaw})::date`;
+  // Due *today or earlier by calendar day*, and not already reviewed today.
+  const dueByDay = and(
+    isNotNull(userWords.srsDue),
+    sql`(${userWords.srsDue} at time zone ${tzRaw})::date <= ${today}`,
+    sql`(${userWords.srsLastReviewed} is null or (${userWords.srsLastReviewed} at time zone ${tzRaw})::date < ${today})`,
+  );
+
   const dueRows = (await db
     .select(cardSelect(aggAll))
     .from(userWords)
@@ -234,7 +267,7 @@ export async function buildSession(
         eq(userWords.userId, userId),
         eq(userWords.language, language),
         eq(userWords.status, "learning"),
-        lte(userWords.srsDue, now),
+        dueByDay,
       ),
     )
     .orderBy(asc(userWords.srsDue))
@@ -248,10 +281,27 @@ export async function buildSession(
         eq(userWords.userId, userId),
         eq(userWords.language, language),
         eq(userWords.status, "learning"),
-        lte(userWords.srsDue, now),
+        dueByDay,
       ),
     );
   const totalDue = dueCountRow?.n ?? 0;
+
+  // New cards introduced today: the only `review_log` row a card gets with `stateBefore = 'new'`
+  // is its first review, so this counts distinct cards first-studied today (this language).
+  const [introRow] = await db
+    .select({ n: sql<number>`count(distinct ${reviewLog.userWordId})::int` })
+    .from(reviewLog)
+    .innerJoin(userWords, eq(userWords.id, reviewLog.userWordId))
+    .where(
+      and(
+        eq(reviewLog.userId, userId),
+        eq(userWords.language, language),
+        eq(reviewLog.stateBefore, "new"),
+        sql`(${reviewLog.reviewedAt} at time zone ${tzRaw})::date = ${today}`,
+      ),
+    );
+  const newDoneToday = introRow?.n ?? 0;
+  const newBudget = Math.max(0, opts.newPerDay - newDoneToday);
 
   const newRows = (await db
     .select(cardSelect(aggNew))
@@ -269,7 +319,7 @@ export async function buildSession(
       ),
     )
     .orderBy(desc(aggNew.maxCount), asc(userWords.lemma))
-    .limit(Math.max(0, opts.newPerDay))) as CardRowWithEnrich[];
+    .limit(Math.max(0, newBudget))) as CardRowWithEnrich[];
 
   // Due first, then new; cap the whole session. New cards are truncated first.
   const capped = [...dueRows, ...newRows].slice(0, Math.max(0, opts.maxPerDay));
@@ -325,7 +375,7 @@ export async function buildSession(
   const newUsed = capped.length - dueUsed;
   return {
     cards,
-    counts: { new: newUsed, due: dueUsed, remaining: capped.length, totalDue },
+    counts: { new: newUsed, due: dueUsed, remaining: capped.length, totalDue, newDoneToday },
   };
 }
 
