@@ -411,6 +411,35 @@ select:focus {
   gap: 10px;
   max-width: 560px;
 }
+.settings-card + .settings-card {
+  margin-top: 16px;
+}
+/* Read-only book details: label / value pairs. */
+.details-view {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  width: 100%;
+}
+.details-view dt {
+  font-size: 13px;
+  color: var(--muted);
+}
+.details-view dd {
+  margin: 0;
+}
+.details-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.details-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 2px;
+}
 .book-card h3 {
   font-size: 16px;
 }

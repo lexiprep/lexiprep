@@ -14,6 +14,7 @@ import {
   reprocessBook,
   reviewBatch,
   setWordNote,
+  updateBook,
 } from "../books/service.js";
 
 export async function bookRoutes(app: FastifyInstance): Promise<void> {
@@ -71,6 +72,36 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
     }
     // Stamp the open so this book sorts to the top of the list next time.
     await markBookOpened(request.user!.id, book.id);
+    return { book };
+  });
+
+  // Edit the book's main details (title / author / translator).
+  app.patch("/books/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as {
+      title?: string;
+      author?: string | null;
+      translator?: string | null;
+    };
+    if (body.title !== undefined && (typeof body.title !== "string" || !body.title.trim())) {
+      reply.code(400);
+      return { error: "`title` cannot be empty" };
+    }
+    let book: Awaited<ReturnType<typeof updateBook>>;
+    try {
+      book = await updateBook(request.user!.id, id, {
+        title: body.title,
+        author: body.author,
+        translator: body.translator,
+      });
+    } catch {
+      reply.code(400);
+      return { error: "`title` cannot be empty" };
+    }
+    if (!book) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
     return { book };
   });
 

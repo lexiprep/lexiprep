@@ -160,6 +160,48 @@ export async function reprocessBook(
   return updated ?? null;
 }
 
+/** Editable bibliographic fields. `author`/`translator` may be cleared (empty -> null). */
+export interface BookDetails {
+  title?: string;
+  author?: string | null;
+  translator?: string | null;
+}
+
+/**
+ * Update a book's main details (title / author / translator). Only provided fields change.
+ * `title` is trimmed and must be non-empty (it's NOT NULL); `author`/`translator` are trimmed
+ * and an empty value clears them to null. Scoped by `userId`, so it returns null for a book
+ * the user doesn't own (the route 404s without leaking existence).
+ */
+export async function updateBook(
+  userId: string,
+  bookId: string,
+  details: BookDetails,
+): Promise<Book | null> {
+  if (!UUID_RE.test(bookId)) return null;
+
+  const patch: Partial<typeof books.$inferInsert> = {};
+  if (details.title !== undefined) {
+    const title = details.title.trim();
+    if (!title) throw new Error("Title is required");
+    patch.title = title;
+  }
+  if (details.author !== undefined) {
+    patch.author = details.author?.trim() || null;
+  }
+  if (details.translator !== undefined) {
+    patch.translator = details.translator?.trim() || null;
+  }
+  if (Object.keys(patch).length === 0) return getBook(userId, bookId);
+
+  const [updated] = await db
+    .update(books)
+    .set(patch)
+    .where(and(eq(books.id, bookId), eq(books.userId, userId)))
+    .returning();
+  return updated ?? null;
+}
+
 export interface BookListItem extends Book {
   /** Distinct words (lemmas) in the book, stopwords hidden — same as the book page's `total`. */
   uniqueWords: number;
