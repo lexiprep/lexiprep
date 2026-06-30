@@ -57,6 +57,7 @@ export async function reviewRoutes(app: FastifyInstance): Promise<void> {
         maxLevel: q.maxLevel || undefined,
         newPerDay: intParam(q.newPerDay) ?? settings.newPerDay,
         maxPerDay: intParam(q.maxPerDay) ?? settings.maxPerDay,
+        timezone: settings.timezone ?? undefined,
       },
       now,
     );

@@ -181,6 +181,129 @@ describe("buildSession — due cards", () => {
   });
 });
 
+describe("buildSession — daily new budget", () => {
+  // The headline fix: a new card introduced today leaves the never-reviewed pool AND counts
+  // against the day's budget, so exit→re-enter can't keep handing out a fresh `newPerDay`.
+  it("counts new cards introduced today against the budget so re-entry can't refill it", async () => {
+    const book = await createBook(userId, { language: "en" });
+    await addBookWords(book.id, [
+      { word: "alpha", lemma: "alpha", count: 100, level: "A1", example: "a ex" },
+      { word: "beta", lemma: "beta", count: 50, level: "A1" },
+      { word: "gamma", lemma: "gamma", count: 10, level: "A1" },
+    ]);
+    for (const w of ["alpha", "beta", "gamma"]) await setUserWord(userId, "en", w, "learning");
+    const now = new Date();
+
+    // First open: budget 2 → the two highest-frequency new words.
+    let s = await buildSession(userId, { newPerDay: 2, maxPerDay: 200 }, now);
+    expect(s.cards.map((c) => c.lemma)).toEqual(["alpha", "beta"]);
+    expect(s.counts).toMatchObject({ new: 2, newDoneToday: 0 });
+
+    // Introduce one of them; it spends a budget slot and drops out of the new pool.
+    await gradeCard(userId, { lemma: "alpha", grade: 3 }, now);
+    s = await buildSession(userId, { newPerDay: 2, maxPerDay: 200 }, now);
+    expect(s.counts.newDoneToday).toBe(1);
+    expect(s.cards.map((c) => c.lemma)).toEqual(["beta"]); // remaining budget = 1
+    expect(s.counts.new).toBe(1);
+
+    // Introduce the second; the day's budget is spent — no fresh new cards on re-entry.
+    await gradeCard(userId, { lemma: "beta", grade: 3 }, now);
+    s = await buildSession(userId, { newPerDay: 2, maxPerDay: 200 }, now);
+    expect(s.counts).toMatchObject({ new: 0, newDoneToday: 2, remaining: 0 });
+    expect(s.cards).toHaveLength(0);
+  });
+
+  it("trims the not-yet-introduced remainder when newPerDay is lowered mid-day", async () => {
+    const book = await createBook(userId, { language: "en" });
+    await addBookWords(book.id, [
+      { word: "alpha", lemma: "alpha", count: 100, level: "A1", example: "a ex" },
+      { word: "beta", lemma: "beta", count: 50, level: "A1" },
+      { word: "gamma", lemma: "gamma", count: 10, level: "A1" },
+    ]);
+    for (const w of ["alpha", "beta", "gamma"]) await setUserWord(userId, "en", w, "learning");
+    const now = new Date();
+
+    await gradeCard(userId, { lemma: "alpha", grade: 3 }, now); // 1 introduced today
+
+    // Lower the daily target to 1: already at 1 → 0 budget left, remainder trimmed away.
+    let s = await buildSession(userId, { newPerDay: 1, maxPerDay: 200 }, now);
+    expect(s.cards).toHaveLength(0);
+
+    // Raise it to 5: budget = 5 − 1 = 4, but only beta + gamma are still new.
+    s = await buildSession(userId, { newPerDay: 5, maxPerDay: 200 }, now);
+    expect(s.cards.map((c) => c.lemma)).toEqual(["beta", "gamma"]);
+    expect(s.counts).toMatchObject({ new: 2, newDoneToday: 1 });
+  });
+});
+
+describe("buildSession — due is a previous day reached, not any past timestamp", () => {
+  // Fixed clock so "5 minutes ago" can never straddle local midnight.
+  const NOON = new Date("2026-06-15T12:00:00.000Z");
+
+  it("drops a card reviewed today (a sub-day step bumped a few minutes ahead), keeps a previous-day card", async () => {
+    const book = await createBook(userId, { language: "en" });
+    await addBookWords(book.id, [
+      { word: "fresh", lemma: "fresh", count: 3, level: "A1" },
+      { word: "old", lemma: "old", count: 3, level: "A1", example: "old ex" },
+    ]);
+    // Studied today; its learning step landed five minutes ago (same calendar day).
+    await setUserWord(userId, "en", "fresh", "learning", {
+      srsState: "learning",
+      srsDue: new Date(NOON.getTime() - 5 * 60 * 1000),
+      srsLastReviewed: new Date(NOON.getTime() - 5 * 60 * 1000),
+      srsStep: 1,
+    });
+    // Reviewed on a previous day, scheduled for today — a real due card.
+    await setUserWord(userId, "en", "old", "learning", {
+      srsState: "review",
+      srsDue: new Date(NOON.getTime() - DAY),
+      srsLastReviewed: new Date(NOON.getTime() - DAY),
+      srsIntervalDays: 5,
+      srsEase: 2.5,
+      srsReps: 2,
+    });
+
+    const s = await buildSession(userId, { newPerDay: 0, maxPerDay: 200, timezone: "UTC" }, NOON);
+    expect(s.cards.map((c) => c.lemma)).toEqual(["old"]);
+    expect(s.counts).toMatchObject({ due: 1, totalDue: 1 });
+  });
+
+  it("keeps a card due later today (due all of today) that hasn't been reviewed today", async () => {
+    const book = await createBook(userId, { language: "en" });
+    await addBookWords(book.id, [{ word: "evening", lemma: "evening", count: 3, level: "A1" }]);
+    const morning = new Date("2026-06-15T08:00:00.000Z");
+    await setUserWord(userId, "en", "evening", "learning", {
+      srsState: "review",
+      srsDue: new Date("2026-06-15T20:00:00.000Z"), // 20:00 today, from a review days ago
+      srsLastReviewed: new Date(morning.getTime() - 2 * DAY),
+      srsIntervalDays: 2,
+      srsEase: 2.5,
+      srsReps: 2,
+    });
+    const s = await buildSession(
+      userId,
+      { newPerDay: 0, maxPerDay: 200, timezone: "UTC" },
+      morning,
+    );
+    expect(s.cards.map((c) => c.lemma)).toEqual(["evening"]);
+  });
+
+  it("excludes a card due tomorrow", async () => {
+    const book = await createBook(userId, { language: "en" });
+    await addBookWords(book.id, [{ word: "later", lemma: "later", count: 3, level: "A1" }]);
+    await setUserWord(userId, "en", "later", "learning", {
+      srsState: "review",
+      srsDue: new Date(NOON.getTime() + DAY),
+      srsLastReviewed: new Date(NOON.getTime() - DAY),
+      srsIntervalDays: 2,
+      srsEase: 2.5,
+      srsReps: 2,
+    });
+    const s = await buildSession(userId, { newPerDay: 0, maxPerDay: 200, timezone: "UTC" }, NOON);
+    expect(s.cards).toHaveLength(0);
+  });
+});
+
 // ── Grading ───────────────────────────────────────────────────────────────────
 
 describe("gradeCard", () => {

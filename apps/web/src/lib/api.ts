@@ -365,6 +365,8 @@ export interface ReviewSession {
     remaining: number;
     /** Full due backlog (may exceed `due` when capped by maxPerDay). */
     totalDue: number;
+    /** New cards already introduced today; the day's new budget is `newPerDay − this`. */
+    newDoneToday: number;
   };
   /** Consecutive local-calendar days reviewed, for the header. */
   streak: number;
