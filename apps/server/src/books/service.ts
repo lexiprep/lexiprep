@@ -295,7 +295,7 @@ function levelBound(token: string): string {
 }
 
 /** Inclusive `>=`/`<=` range conditions for a level expression, unleveled-aware. */
-function levelRange(level: SQLWrapper, min?: string, max?: string): SQL[] {
+export function levelRange(level: SQLWrapper, min?: string, max?: string): SQL[] {
   const out: SQL[] = [];
   if (min) out.push(sql`coalesce(${level}, '') >= ${levelBound(min)}`);
   if (max) out.push(sql`coalesce(${level}, '') <= ${levelBound(max)}`);
@@ -712,13 +712,17 @@ type ReviewAgg = ReturnType<typeof reviewBookAgg>;
  * one). Scoped to the user's own books in one language, optionally narrowed to a single
  * book. Joined to `user_words` to build the cross-book study list.
  */
-function reviewBookAgg(userId: string, language: string, bookId?: string) {
+export function reviewBookAgg(userId: string, language: string, bookId?: string) {
   return db
     .select({
       // Aliased distinctly from user_words.lemma: Drizzle renders subquery sql-columns
       // unqualified, so a plain "lemma" would be ambiguous in the outer join condition.
       lemma: sql<string>`coalesce(${bookWords.lemma}, ${bookWords.word})`.as("agg_lemma"),
       count: sql<number>`sum(${bookWords.count})::int`.as("agg_count"),
+      // Highest single-book occurrence count for this lemma — the new-card ordering key
+      // for the review session (spec 12 §New-card ordering: "max count across books").
+      // Distinct from `count` (the cross-book sum); existing callers ignore it.
+      maxCount: sql<number>`max(${bookWords.count})::int`.as("max_count"),
       level: sql<string | null>`max(${bookWords.level})`.as("level"),
       example: sql<string | null>`max(${bookWords.example})`.as("example"),
       bookCount: sql<number>`count(distinct ${books.id})::int`.as("book_count"),
@@ -728,6 +732,9 @@ function reviewBookAgg(userId: string, language: string, bookId?: string) {
       bookId: sql<
         string | null
       >`(array_agg(${books.id} order by ${bookWords.count} desc))[1]`.as("book_id"),
+      // Every surface form of this lemma, so the context sentence can bold inflections too
+      // (matches the word modal's highlighting). Existing callers ignore it.
+      forms: sql<string[]>`array_agg(distinct ${bookWords.word})`.as("forms"),
     })
     .from(bookWords)
     .innerJoin(books, eq(books.id, bookWords.bookId))

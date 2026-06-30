@@ -393,6 +393,7 @@ export function LearningPage() {
           word={openWord.word}
           language={LANG}
           source="learning"
+          bookScoped={!!bookId}
           initial={{
             word: openWord.word,
             level: openWord.level,
