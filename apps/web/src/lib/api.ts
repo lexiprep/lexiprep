@@ -138,6 +138,19 @@ export const reprocessBook = (id: string) =>
     (r) => r.book,
   );
 
+/** Editable book details. Omit a field to leave it unchanged; "" clears author/translator. */
+export interface BookDetailsInput {
+  title?: string;
+  author?: string | null;
+  translator?: string | null;
+}
+
+export const updateBook = (id: string, details: BookDetailsInput) =>
+  request<{ book: Book }>(`/api/books/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(details),
+  }).then((r) => r.book);
+
 export interface WordsParams {
   limit: number;
   offset: number;
