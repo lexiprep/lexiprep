@@ -318,3 +318,135 @@ export function exportDeckUrl(p: ExportParams): string {
     language: p.language,
   })}`;
 }
+
+// ── Card review (spaced repetition) ──────────────────────────────────────────
+
+export type SrsState = "new" | "learning" | "review" | "relearning";
+
+/** Button labels showing the interval each grade would schedule next (e.g. "1d", "10m"). */
+export interface GradePreview {
+  again: string;
+  hard: string;
+  good: string;
+  easy: string;
+}
+
+/** One card in a review session — the word plus everything needed to study and grade it. */
+export interface ReviewCard {
+  /** Base form (lemma) — the grade keys on this. */
+  lemma: string;
+  /** A representative surface form to show on the card front. */
+  word: string;
+  example: string | null;
+  level: string | null;
+  /** Cached senses (POS + gloss + example); null if the dictionary has none. */
+  definition: WordSense[] | null;
+  /** Representative book the word comes from — used to attach a per-book note. */
+  bookId: string | null;
+  bookTitle: string | null;
+  /** The user's own note (custom meaning) for that book, or null. */
+  note: string | null;
+  /** Every surface form of the lemma — used to bold the word in the context sentence. */
+  forms: string[];
+  state: SrsState;
+  /** True for cards pulled from the new-card budget (never reviewed before). */
+  isNew: boolean;
+  preview: GradePreview;
+}
+
+export interface ReviewSession {
+  cards: ReviewCard[];
+  counts: {
+    /** New cards included in this session. */
+    new: number;
+    /** Due cards included in this session. */
+    due: number;
+    /** Cards still queued in this session. */
+    remaining: number;
+    /** Full due backlog (may exceed `due` when capped by maxPerDay). */
+    totalDue: number;
+  };
+  /** Consecutive local-calendar days reviewed, for the header. */
+  streak: number;
+}
+
+export interface GradeResult {
+  /** True if the card re-shows this session (sub-day learning/relearning step). */
+  stays: boolean;
+  /** True if grading auto-graduated the word to `known`. */
+  graduated: boolean;
+  card: {
+    state: string;
+    intervalDays: number;
+    /** Next due timestamp (ISO), or null while in a sub-day step. */
+    due: string | null;
+    preview: GradePreview;
+  };
+}
+
+/**
+ * Headline SRS stats for the Stats page.
+ *
+ * NOTE: named `ReviewStatsSummary` (not `ReviewStats`) to avoid colliding with the
+ * existing study-list {@link ReviewStats} (`{ total, filtered }`). This is the shape
+ * returned by {@link getReviewStats}.
+ */
+export interface ReviewStatsSummary {
+  dayStreak: number;
+  reviewedToday: number;
+  reviewedAllTime: number;
+  /** Mean elapsed days between reviews, or null with too little history. */
+  avgDaysBetween: number | null;
+}
+
+export interface ReviewTimeseries {
+  granularity: string;
+  buckets: {
+    /** Bucket start, YYYY-MM-DD. */
+    period: string;
+    reviews: number;
+    again: number;
+    hard: number;
+    good: number;
+    easy: number;
+  }[];
+}
+
+export interface UserSettings {
+  newPerDay: number;
+  maxPerDay: number;
+  autoGraduateKnown: boolean;
+  /** IANA timezone for the day boundary; null → UTC. */
+  timezone: string | null;
+}
+
+export const getReviewSession = (params: {
+  bookId?: string;
+  minLevel?: string;
+  maxLevel?: string;
+  newPerDay?: number;
+  maxPerDay?: number;
+}) => request<ReviewSession>(`/api/review/session${qs({ ...params })}`);
+
+export const gradeCard = (lemma: string, grade: 1 | 2 | 3 | 4) =>
+  request<GradeResult>("/api/review/grade", {
+    method: "POST",
+    body: JSON.stringify({ lemma, grade }),
+  });
+
+export const getReviewStats = () =>
+  request<ReviewStatsSummary>("/api/review/stats");
+
+export const getReviewTimeseries = (params: {
+  from?: string;
+  to?: string;
+  granularity?: string;
+}) => request<ReviewTimeseries>(`/api/review/stats/timeseries${qs({ ...params })}`);
+
+export const getSettings = () => request<UserSettings>("/api/settings");
+
+export const updateSettings = (patch: Partial<UserSettings>) =>
+  request<UserSettings>("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });

@@ -1,17 +1,17 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   clearWordStatus,
-  deleteWordNote,
   getWordDetail,
-  setWordNote,
   setWordStatus,
   type UserWordStatus,
   type WordEventSource,
 } from "../lib/api";
+import { formSetOf, highlightForms } from "../lib/highlight";
 import { LevelBadge, StatusBadge } from "./badges";
 import { ModalOverlay } from "./ModalOverlay";
+import { WordMeaning } from "./WordMeaning";
 
 const ACTIONS: { status: UserWordStatus; label: string; cls: string }[] = [
   { status: "learning", label: "Learning", cls: "blue" },
@@ -34,46 +34,12 @@ export interface WordModalInitial {
 const errMessage = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
 
-// Locate the studied word (and its surface forms) inside the context line so it can be
-// bolded. Mirror @lexiprep/core's tokenizer: a token is a run of letters (any script)
-// with internal apostrophes, normalized by lowercasing, unifying curly apostrophes,
-// dropping a trailing possessive `'s`, and stripping edge apostrophes/hyphens.
-const WORD_RE = /\p{L}[\p{L}\p{M}'’]*/gu;
-
-function normalizeWord(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/’/g, "'")
-    .replace(/'s$/, "")
-    .replace(/^['-]+|['-]+$/g, "");
-}
-
-/** Render a context snippet, bolding every token that is one of `forms`. */
-function highlightForms(text: string, forms: ReadonlySet<string>): ReactNode {
-  if (forms.size === 0) return text;
-  const out: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  for (const m of text.matchAll(WORD_RE)) {
-    const start = m.index ?? 0;
-    if (!forms.has(normalizeWord(m[0]))) continue;
-    if (start > last) out.push(text.slice(last, start));
-    out.push(
-      <strong key={key++} className="ctx-hl">
-        {m[0]}
-      </strong>,
-    );
-    last = start + m[0].length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
-
 export function WordModal({
   bookId,
   word,
   language,
   source,
+  bookScoped,
   initial,
   onStatusChange,
   onClose,
@@ -84,6 +50,9 @@ export function WordModal({
   /** Which page opened the modal — drives the "learned" series. The book page is triage
    * (`book`); the Learning page is the deliberate study action (`learning`). */
   source: WordEventSource;
+  /** A specific book is in context (the book page; or the vocabulary page filtered to one
+   * book) → the user's own note replaces the dictionary definition. */
+  bookScoped?: boolean;
   /** Row data shown instantly; the full detail (definition, note, forms) loads in parallel. */
   initial?: WordModalInitial;
   /** Called after a status change (mark or clear) succeeds. Lets a host with a frozen
@@ -161,25 +130,6 @@ export function WordModal({
     }
   };
 
-  const [noteText, setNoteText] = useState("");
-  useEffect(() => {
-    setNoteText(detail.data?.note ?? "");
-  }, [detail.data?.note]);
-
-  const saveNote = useMutation({
-    mutationFn: () => setWordNote(bookId, word, noteText.trim()),
-    onSuccess: refreshDetail,
-    onError: (err) => toast.error(errMessage(err, "Couldn't save your note.")),
-  });
-  const removeNote = useMutation({
-    mutationFn: () => deleteWordNote(bookId, word),
-    onSuccess: () => {
-      setNoteText("");
-      refreshDetail();
-    },
-    onError: (err) => toast.error(errMessage(err, "Couldn't remove your note.")),
-  });
-
   // Header fields fall back to the row data so they show before the detail request lands.
   const headWord = d?.word ?? initial?.word ?? word;
   const headLevel = d?.level ?? initial?.level ?? null;
@@ -188,18 +138,10 @@ export function WordModal({
 
   // The surface forms to bold in the context line: the lemma plus every form seen in
   // this book. Falls back to just the word until the detail (with forms) loads.
-  const formSet = useMemo(() => {
-    const s = new Set<string>();
-    const add = (w?: string | null) => {
-      if (!w) return;
-      const n = normalizeWord(w);
-      if (n.length > 1) s.add(n);
-    };
-    add(word);
-    add(headWord);
-    d?.forms.forEach((f) => add(f.word));
-    return s;
-  }, [word, headWord, d?.forms]);
+  const formSet = useMemo(
+    () => formSetOf(word, headWord, ...(d?.forms.map((f) => f.word) ?? [])),
+    [word, headWord, d?.forms],
+  );
 
   return (
     <ModalOverlay onClose={onClose}>
@@ -210,7 +152,7 @@ export function WordModal({
       <div className="modal-body">
         <div className="modal-head">
           <h2>{headWord}</h2>
-          <LevelBadge level={headLevel} />
+          {headLevel && <LevelBadge level={headLevel} />}
           {headCount != null && (
             <span className="count-chip">{headCount.toLocaleString()}×</span>
           )}
@@ -227,60 +169,16 @@ export function WordModal({
         )}
 
         <div className="modal-section">
-          <h4>Definition</h4>
-          {detail.isLoading ? (
-            <p className="muted small">Loading…</p>
-          ) : d?.definition && d.definition.length > 0 ? (
-            <ol className="senses">
-              {d.definition.map((s, i) => (
-                <li key={i}>
-                  <span className="pos">{s.pos}</span>
-                  <span>{s.gloss}</span>
-                  {s.example && (
-                    <span className="muted small sense-ex">“{s.example}”</span>
-                  )}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="muted small">No definition found for this word.</p>
-          )}
+          <WordMeaning
+            bookId={bookId}
+            word={word}
+            definition={d?.definition ?? null}
+            note={d?.note ?? null}
+            bookScoped={bookScoped}
+            loading={detail.isLoading}
+            onNoteSaved={refreshDetail}
+          />
         </div>
-
-        {d && (
-          <div className="modal-section">
-            <h4>Your note {d.note && <span className="dot-saved" title="saved" />}</h4>
-            <textarea
-              className="note-input"
-              rows={2}
-              placeholder="Add a meaning specific to this book’s context…"
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-            />
-            <div className="note-actions">
-              <button
-                className="btn primary slim"
-                disabled={
-                  !noteText.trim() ||
-                  noteText.trim() === (d.note ?? "") ||
-                  saveNote.isPending
-                }
-                onClick={() => saveNote.mutate()}
-              >
-                {d.note ? "Update note" : "Save note"}
-              </button>
-              {d.note && (
-                <button
-                  className="btn ghost slim"
-                  disabled={removeNote.isPending}
-                  onClick={() => removeNote.mutate()}
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          </div>
-        )}
 
         {d && d.forms.length > 1 && (
           <div className="modal-section">

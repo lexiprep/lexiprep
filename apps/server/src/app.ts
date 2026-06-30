@@ -8,6 +8,8 @@ import { authRoutes } from "./routes/auth.js";
 import { meRoutes } from "./routes/me.js";
 import { bookRoutes } from "./routes/books.js";
 import { wordRoutes } from "./routes/words.js";
+import { reviewRoutes } from "./routes/review.js";
+import { settingsRoutes } from "./routes/settings.js";
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -27,6 +29,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(meRoutes, { prefix: "/api" });
   await app.register(bookRoutes, { prefix: "/api" });
   await app.register(wordRoutes, { prefix: "/api" });
+  await app.register(reviewRoutes, { prefix: "/api" });
+  await app.register(settingsRoutes, { prefix: "/api" });
 
   return app;
 }

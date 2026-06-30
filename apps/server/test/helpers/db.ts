@@ -105,8 +105,9 @@ export async function setUserWord(
   language: string,
   lemma: string,
   status: UserWordStatus,
+  over: Partial<typeof userWords.$inferInsert> = {},
 ): Promise<void> {
-  await db.insert(userWords).values({ userId, language, lemma, status });
+  await db.insert(userWords).values({ userId, language, lemma, status, ...over });
 }
 
 export async function addBookFile(

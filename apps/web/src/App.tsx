@@ -7,6 +7,7 @@ import { BooksPage } from "./pages/BooksPage";
 import { BookPage } from "./pages/BookPage";
 import { BookSettingsPage } from "./pages/BookSettingsPage";
 import { LearningPage } from "./pages/LearningPage";
+import { ReviewPage } from "./pages/ReviewPage";
 import { StatsPage } from "./pages/StatsPage";
 
 export function App() {
@@ -24,6 +25,7 @@ export function App() {
         >
           <Route path="/" element={<BooksPage />} />
           <Route path="/learning" element={<LearningPage />} />
+          <Route path="/review" element={<ReviewPage />} />
           <Route path="/stats" element={<StatsPage />} />
           <Route path="/books/:id" element={<BookPage />} />
           <Route path="/books/:id/settings" element={<BookSettingsPage />} />

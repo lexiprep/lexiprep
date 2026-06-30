@@ -196,9 +196,11 @@ describe("WordModal", () => {
     const onStatusChange = vi.fn();
     renderModal(undefined, onStatusChange);
 
+    // The note editor starts collapsed — open it, then type and save.
+    fireEvent.click(await screen.findByRole("button", { name: /add your own note/i }));
     const textarea = await screen.findByPlaceholderText(/Add a meaning/i);
     fireEvent.change(textarea, { target: { value: "god of the sea here" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(api.setWordNote).toHaveBeenCalled());
     expect(onStatusChange).not.toHaveBeenCalled();
@@ -208,9 +210,10 @@ describe("WordModal", () => {
     vi.mocked(api.getWordDetail).mockResolvedValue(detail({ note: null }));
     renderModal();
 
+    fireEvent.click(await screen.findByRole("button", { name: /add your own note/i }));
     const textarea = await screen.findByPlaceholderText(/Add a meaning/i);
     fireEvent.change(textarea, { target: { value: "god of the sea here" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(api.setWordNote).toHaveBeenCalledWith("book-1", "ocean", "god of the sea here"),

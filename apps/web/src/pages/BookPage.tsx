@@ -557,6 +557,7 @@ export function BookPage() {
           word={openWord.word}
           language={book.language}
           source="book"
+          bookScoped
           initial={openWord}
           // Same freeze-the-batch path as the per-row buttons: a status change in the modal
           // drops the word from the current batch without pulling new words in.

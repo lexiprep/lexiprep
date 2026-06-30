@@ -3,6 +3,9 @@ import {
   uuid,
   text,
   integer,
+  real,
+  smallint,
+  bigserial,
   boolean,
   timestamp,
   unique,
@@ -94,6 +97,17 @@ export const bookWords = pgTable(
 export const USER_WORD_STATUSES = ["learning", "known", "ignored"] as const;
 export type UserWordStatus = (typeof USER_WORD_STATUSES)[number];
 
+/**
+ * Spaced-repetition card state (spec 12). The `srs*` columns on {@link userWords} are
+ * meaningful only while `status = 'learning'`:
+ *  - `new`        — never reviewed; flows into the daily new-card budget
+ *  - `learning`   — running the sub-day learning step ladder
+ *  - `review`     — graduated to day-level intervals
+ *  - `relearning` — lapsed back to the short relearning ladder
+ */
+export const SRS_STATES = ["new", "learning", "review", "relearning"] as const;
+export type SrsState = (typeof SRS_STATES)[number];
+
 export const userWords = pgTable(
   "user_words",
   {
@@ -104,10 +118,35 @@ export const userWords = pgTable(
     language: text("language").notNull(),
     lemma: text("lemma").notNull(),
     status: text("status").notNull(),
+    // --- SRS card state (spec 12); meaningful only while status = 'learning'. ---
+    /** new | learning | review | relearning ({@link SRS_STATES}). */
+    srsState: text("srs_state").notNull().default("new"),
+    /** Next due time; null until the card is first scheduled. Drives the due index. */
+    srsDue: timestamp("srs_due", { withTimezone: true }),
+    /** Last scheduled review interval, in days. */
+    srsIntervalDays: real("srs_interval_days").notNull().default(0),
+    /** Ease multiplier (SM-2 ease factor). */
+    srsEase: real("srs_ease").notNull().default(2.5),
+    /** Successful review-phase answers. */
+    srsReps: integer("srs_reps").notNull().default(0),
+    /** Times the card fell back to relearning. */
+    srsLapses: integer("srs_lapses").notNull().default(0),
+    /** Index into the learning/relearning step ladder. */
+    srsStep: integer("srs_step").notNull().default(0),
+    /** Consecutive Good/Easy answers (for auto-graduation to known). */
+    srsStreak: integer("srs_streak").notNull().default(0),
+    /** Interval before the last lapse, in days (relearning graduation input). */
+    srsPreLapseInterval: real("srs_pre_lapse_interval").notNull().default(0),
+    /** Last review time; null until first reviewed. */
+    srsLastReviewed: timestamp("srs_last_reviewed", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("user_words_user_lang_lemma_uniq").on(t.userId, t.language, t.lemma)],
+  (t) => [
+    unique("user_words_user_lang_lemma_uniq").on(t.userId, t.language, t.lemma),
+    // The daily "what's due" query: due learning cards for a user, oldest-first.
+    index("user_words_due_idx").on(t.userId, t.status, t.srsDue),
+  ],
 );
 
 /**
@@ -151,6 +190,58 @@ export const userWordEvents = pgTable(
     index("user_word_events_learned_idx").on(t.userId, t.toStatus, t.at),
   ],
 );
+
+/**
+ * Append-only audit of every spaced-repetition grade (spec 12). One row per graded card.
+ * `userWords` keeps only the card's *current* SRS state (last-write-wins), so this table
+ * is the history: `(rating, elapsedDays, reviewedAt)` per card is exactly what an FSRS
+ * optimizer consumes — logging it keeps the FSRS swap a real future option — and it is the
+ * source for the review stats (day streak, reviewed today/all-time, avg time between).
+ */
+export const reviewLog = pgTable(
+  "review_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    userWordId: uuid("user_word_id")
+      .notNull()
+      .references(() => userWords.id, { onDelete: "cascade" }),
+    /** 1 Again, 2 Hard, 3 Good, 4 Easy. */
+    rating: smallint("rating").notNull(),
+    /** SRS state before this grade was applied. */
+    stateBefore: text("state_before"),
+    /** Days since the card's previous review (FSRS input; also "avg time between"). */
+    elapsedDays: real("elapsed_days"),
+    /** The interval that had been due (lateness analysis). */
+    scheduledDays: real("scheduled_days"),
+    /** Interval after applying this grade, in days. */
+    intervalAfter: real("interval_after"),
+    /** Ease after applying this grade. */
+    easeAfter: real("ease_after"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("review_log_user_reviewed_idx").on(t.userId, t.reviewedAt)],
+);
+
+/**
+ * Per-user settings (spec 12 — the first settings table in the app). One row per user,
+ * created lazily on first write; reads fall back to the column defaults when absent.
+ */
+export const userSettings = pgTable("user_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  /** New cards introduced per daily session. */
+  newPerDay: integer("new_per_day").notNull().default(20),
+  /** Total cards (new + due) per daily session. */
+  maxPerDay: integer("max_per_day").notNull().default(200),
+  /** Opt-in: retire a card to `known` once it clears the high recall bar. */
+  autoGraduateKnown: boolean("auto_graduate_known").notNull().default(false),
+  /** IANA timezone for the day boundary + streak; null → UTC fallback. */
+  timezone: text("timezone"),
+});
 
 /** The raw uploaded EPUB bytes, kept so any worker can (re)process it. */
 export const bookFiles = pgTable("book_files", {
@@ -246,3 +337,7 @@ export type Definition = typeof definitions.$inferSelect;
 export type NewDefinition = typeof definitions.$inferInsert;
 export type WordNote = typeof wordNotes.$inferSelect;
 export type NewWordNote = typeof wordNotes.$inferInsert;
+export type ReviewLog = typeof reviewLog.$inferSelect;
+export type NewReviewLog = typeof reviewLog.$inferInsert;
+export type UserSettings = typeof userSettings.$inferSelect;
+export type NewUserSettings = typeof userSettings.$inferInsert;
