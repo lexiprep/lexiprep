@@ -10,6 +10,7 @@ import { bookRoutes } from "./routes/books.js";
 import { wordRoutes } from "./routes/words.js";
 import { reviewRoutes } from "./routes/review.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { usageRoutes } from "./routes/usage.js";
 
 export interface BuildAppOptions {
   logger?: boolean;
@@ -31,6 +32,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(wordRoutes, { prefix: "/api" });
   await app.register(reviewRoutes, { prefix: "/api" });
   await app.register(settingsRoutes, { prefix: "/api" });
+  await app.register(usageRoutes, { prefix: "/api" });
 
   return app;
 }

@@ -30,11 +30,6 @@ import { LevelRange } from "../components/LevelRange";
 
 const LANG = "en";
 
-// When an Again/Hard card "stays" in the session, slot it back this many cards behind the
-// head so a couple of other cards show before it returns (sub-day reshow without an
-// immediate repeat).
-const REINSERT_OFFSET = 3;
-
 // IANA zones for the timezone select. Feature-detected so the build doesn't depend on the
 // `Intl.supportedValuesOf` lib typing being present; falls back to a free-text field.
 const TIMEZONES: string[] = (() => {
@@ -120,7 +115,7 @@ const GRADES: { grade: Grade; key: keyof GradePreview; label: string; cls: strin
  *    and Start. The filter scopes only *new* cards; due reviews are always global.
  *  - **review** / **practice** — an in-memory queue showing one card at a time: front (just the
  *    word) → flip → back (context + definition + your note) → grade Again/Hard/Good/Easy.
- *    Again/Hard reshow the card a few positions back this session; Good/Easy write it out.
+ *    Again/Hard send the card to the end of the stack this session; Good/Easy write it out.
  *    `practice` is the
  *    uncapped "keep going" mode pulled from the Learning list.
  *  - **done** — "done for today" + keep-practicing.
@@ -231,11 +226,12 @@ export function ReviewPage() {
         if (idx === -1) return prev; // gone already — nothing to do
         const next = prev.slice();
         const [card] = next.splice(idx, 1);
-        // stays → sub-day learning/relearning step: reshow a few cards later with fresh
-        // interval labels. Otherwise it's scheduled days out and leaves the queue.
+        // stays → sub-day learning/relearning step: send it to the *end* of the current
+        // stack so every other card is reviewed first, simulating a timed gap between
+        // repetitions. Fresh interval labels come from the grade response. Otherwise it's
+        // scheduled days out and leaves the queue.
         if (res.stays && card) {
-          const pos = Math.min(idx + REINSERT_OFFSET, next.length);
-          next.splice(pos, 0, { ...card, preview: res.card.preview });
+          next.push({ ...card, preview: res.card.preview });
         }
         return next;
       });
