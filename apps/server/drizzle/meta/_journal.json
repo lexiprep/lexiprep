@@ -15,6 +15,13 @@
       "when": 1782656184526,
       "tag": "0001_cleanup_roman_numerals",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782903852009,
+      "tag": "0002_seed_feature_limits",
+      "breakpoints": true
     }
   ]
 }

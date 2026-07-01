@@ -1,5 +1,6 @@
 import {
   pgTable,
+  pgEnum,
   uuid,
   text,
   integer,
@@ -341,3 +342,59 @@ export type ReviewLog = typeof reviewLog.$inferSelect;
 export type NewReviewLog = typeof reviewLog.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
 export type NewUserSettings = typeof userSettings.$inferInsert;
+
+// ── Usage limits / paid-feature gating (spec 13) ──────────────────────────────
+
+/**
+ * The rolling windows a usage limit can be expressed over. A closed, stable set,
+ * and `feature_limits` is hand-edited via migration SQL, so it's a DB enum: a typo
+ * like `hourly` fails at write time instead of silently dropping a limit.
+ */
+export const USAGE_WINDOWS = ["minute", "hour", "day", "month"] as const;
+export type UsageWindow = (typeof USAGE_WINDOWS)[number];
+export const usageWindow = pgEnum("usage_window", USAGE_WINDOWS);
+
+/**
+ * Per-feature usage policy. One row per (slug, window); a feature may carry any
+ * combination of windows (e.g. 5/min AND 120/hour). Absence of a (slug, window)
+ * row = that window isn't enforced; zero rows for a slug = unlimited (fail-open).
+ * The slug is a plain text column validated against the code registry
+ * (`usage/features.ts`) — adding a feature must not require a DB migration.
+ * Policy is adjustable directly in the DB and shipped via journaled migrations.
+ */
+export const featureLimits = pgTable(
+  "feature_limits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: text("slug").notNull(),
+    window: usageWindow("window").notNull(),
+    /** Max allowed events within the trailing window. */
+    maxCount: integer("max_count").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("feature_limits_slug_window_uniq").on(t.slug, t.window)],
+);
+
+/**
+ * Append-only usage ledger: one row per consumed use of a metered feature. Windowed
+ * counts (`count(*) WHERE created_at >= now() - interval 'X'`) enforce the policy, and
+ * the log doubles as the future per-use billing/audit trail. Bounded by a daily prune
+ * job (see `queue/boss.ts`). The (user, slug, created_at) index serves every count.
+ */
+export const featureUsageEvents = pgTable(
+  "feature_usage_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("feature_usage_events_user_slug_at_idx").on(t.userId, t.slug, t.createdAt)],
+);
+
+export type FeatureLimit = typeof featureLimits.$inferSelect;
+export type NewFeatureLimit = typeof featureLimits.$inferInsert;
+export type FeatureUsageEvent = typeof featureUsageEvents.$inferSelect;
+export type NewFeatureUsageEvent = typeof featureUsageEvents.$inferInsert;

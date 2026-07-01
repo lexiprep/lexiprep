@@ -3,11 +3,22 @@ import { sql } from "drizzle-orm";
 import { db, schema } from "../../src/db/client.js";
 import type { UserWordStatus, WordSense } from "../../src/db/schema.js";
 
-const { user, books, bookWords, bookFiles, userWords, wordLevels, definitions, wordNotes } =
-  schema;
+const {
+  user,
+  books,
+  bookWords,
+  bookFiles,
+  userWords,
+  wordLevels,
+  definitions,
+  wordNotes,
+  featureLimits,
+} = schema;
 
 // Child-first so CASCADE has nothing to complain about; covers every app + auth table.
 const TABLES = [
+  "feature_usage_events",
+  "feature_limits",
   "word_notes",
   "user_word_events",
   "user_words",
@@ -108,6 +119,14 @@ export async function setUserWord(
   over: Partial<typeof userWords.$inferInsert> = {},
 ): Promise<void> {
   await db.insert(userWords).values({ userId, language, lemma, status, ...over });
+}
+
+export async function addFeatureLimit(
+  slug: string,
+  window: "minute" | "hour" | "day" | "month",
+  maxCount: number,
+): Promise<void> {
+  await db.insert(featureLimits).values({ slug, window, maxCount });
 }
 
 export async function addBookFile(

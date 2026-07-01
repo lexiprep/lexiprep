@@ -82,6 +82,23 @@ export interface UserWord {
   updatedAt: string;
 }
 
+/**
+ * Error thrown for any non-2xx response. Carries the HTTP `status` (and, for usage
+ * limits, the `slug` + `retryAfter`) so callers can react specifically — e.g. treat a
+ * 429 as "limit reached". Extends Error, so existing `err.message` handling is unchanged.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly slug?: string,
+    readonly retryAfter?: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: "include",
@@ -95,13 +112,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
+    let slug: string | undefined;
+    let retryAfter: number | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        slug?: string;
+        retryAfter?: number;
+      };
       if (body?.error) message = body.error;
+      slug = body?.slug;
+      retryAfter = body?.retryAfter;
     } catch {
       /* non-JSON error body */
     }
-    throw new Error(message);
+    throw new ApiError(message, res.status, slug, retryAfter);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -464,4 +489,50 @@ export const updateSettings = (patch: Partial<UserSettings>) =>
   request<UserSettings>("/api/settings", {
     method: "PUT",
     body: JSON.stringify(patch),
+  });
+
+// ── Usage limits / paid features (spec 13) ─────────────────────────────────────
+
+/** Slugs mirror the server registry (`apps/server/src/usage/features.ts`). */
+export type PaidFeatureSlug = "ai-word-definition-from-context";
+export type UsageWindow = "minute" | "hour" | "day" | "month";
+
+export interface UsageWindowInfo {
+  window: UsageWindow;
+  used: number;
+  max: number;
+  remaining: number;
+  /** When this window next admits again; null when nothing counted. */
+  resetAt: string | null;
+}
+
+/** Result of a usage check: `allowed` false = the limit is hit. */
+export interface UsageCheck {
+  allowed: boolean;
+  windows: UsageWindowInfo[];
+}
+
+export interface FeatureCatalogItem {
+  slug: PaidFeatureSlug;
+  label: string;
+  description: string;
+  limits: { window: UsageWindow; max: number }[];
+  usage: UsageCheck;
+}
+
+/** (a) The catalogue of paid features + this user's live usage. */
+export const getFeatures = () =>
+  request<{ features: FeatureCatalogItem[] }>("/api/usage/features").then((r) => r.features);
+
+/** (b) Advisory check: does the user still have usage for this feature? Does not consume. */
+export const checkUsage = (slug: PaidFeatureSlug) =>
+  request<UsageCheck>("/api/usage/check", {
+    method: "POST",
+    body: JSON.stringify({ slug }),
+  });
+
+/** Dev-only: the fake protected endpoint that consumes one use (429 at the limit). */
+export const callUsageDemo = () =>
+  request<{ ok: true; feature: PaidFeatureSlug; stub: true }>("/api/usage/demo", {
+    method: "POST",
   });
