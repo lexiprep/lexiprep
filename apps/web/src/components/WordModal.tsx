@@ -187,7 +187,9 @@ export function WordModal({
           />
         </div>
 
-        {d && (
+        {/* AI controls only while the user has no definition of their own — their
+            definition outranks the AI one, so offering to generate it is noise. */}
+        {d && d.notes.length === 0 && (
           <AiDefinitionSection
             bookId={bookId}
             word={word}

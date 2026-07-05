@@ -39,6 +39,7 @@ const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
 function renderModal(
   initial?: WordModalInitial,
   onStatusChange?: (word: string, status: api.UserWordStatus | null) => void,
+  bookScoped?: boolean,
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -50,6 +51,7 @@ function renderModal(
       word="ocean"
       language="en"
       source="book"
+      bookScoped={bookScoped}
       initial={initial}
       onStatusChange={onStatusChange}
       onClose={vi.fn()}
@@ -224,5 +226,27 @@ describe("WordModal", () => {
     await waitFor(() =>
       expect(api.addWordNote).toHaveBeenCalledWith("book-1", "ocean", "god of the sea here"),
     );
+  });
+
+  it("offers the AI button only while the user has no definition of their own", async () => {
+    vi.mocked(api.checkUsage).mockResolvedValue({ allowed: true, windows: [] });
+    vi.mocked(api.getWordDetail).mockResolvedValue(
+      detail({ aiDefinitionEnabled: true, notes: [] }),
+    );
+    const { unmount } = renderModal(undefined, undefined, true);
+    expect(
+      await screen.findByRole("button", { name: /AI definition/ }),
+    ).toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getWordDetail).mockResolvedValue(
+      detail({
+        aiDefinitionEnabled: true,
+        notes: [{ id: "n1", note: "my own meaning" }],
+      }),
+    );
+    renderModal(undefined, undefined, true);
+    expect(await screen.findByText("my own meaning")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /AI definition/ })).not.toBeInTheDocument();
   });
 });
