@@ -32,7 +32,8 @@ export const AI_DEFINITION_JSON_SCHEMA = {
       type: "array",
       minItems: 1,
       maxItems: MAX_MEANINGS,
-      description: "Distinct meanings of the word, the one most relevant to the book first.",
+      description:
+        "One entry per genuinely different meaning - a single entry is the norm. The meaning most relevant to the book first.",
       items: {
         type: "object",
         additionalProperties: false,
@@ -87,10 +88,14 @@ export interface DefinitionPromptInput {
   examples: string[];
 }
 
+// Deliberately no meaning-count anywhere in the prose: models treat a named cap as a
+// target and pad with paraphrases ("discern" once came back as three shades of
+// "perceive"). The hard cap lives only in the JSON schema + the server-side slice.
 const SYSTEM_PROMPT = [
   "You are a lexicographer writing very short word definitions for an advanced English learner.",
   "Rules:",
-  `- Give at most ${MAX_MEANINGS} distinct meanings; fewer is better when the word is used one way.`,
+  "- Most words are used one way: give exactly ONE meaning. Add another only when the word has a genuinely unrelated second meaning (a different part of speech, or a completely different sense - like 'bank': river edge vs. money institution).",
+  "- Never restate the same meaning in different words. If two candidate meanings overlap, merge them into one.",
   "- Each meaning is one short, simple phrase of about 5-12 words, in plain everyday language. No jargon, no circular definitions.",
   "- Give the part of speech for each meaning.",
   "- Include only meanings that are plausible for this word in general usage - never invent rare senses.",
