@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBooks, uploadBook, type Book, type BookStatus } from "../lib/api";
-import { UsageDemo } from "../components/UsageDemo";
 
 const STATUS_LABEL: Record<BookStatus, string> = {
   uploaded: "queued",
@@ -91,7 +90,6 @@ export function BooksPage() {
         <p className="muted empty">No books yet. Upload an EPUB or PDF to get started.</p>
       )}
 
-      {import.meta.env.DEV && <UsageDemo />}
     </section>
   );
 }

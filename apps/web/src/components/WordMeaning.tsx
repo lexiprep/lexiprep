@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { deleteWordNote, setWordNote, type WordSense } from "../lib/api";
+import {
+  addWordNote,
+  deleteWordNote,
+  updateWordNote,
+  type WordNoteItem,
+  type WordSense,
+} from "../lib/api";
 
 const errMessage = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
@@ -33,13 +39,15 @@ function TrashIcon() {
 }
 
 /**
- * Renders a word's meaning: the dictionary definition and/or the user's own per-book note.
+ * Renders a word's meaning with a per-book precedence (spec 03/10):
  *
- * When a specific book is in context (`bookScoped`) AND the user has written a note for it,
- * that note *replaces* the dictionary definition ("show only my definition"). Otherwise the
- * dictionary senses show, with the note as an addition below. Either way the note edits in
- * place: it displays as text with edit/remove icons on the right, and only becomes a textarea
- * when you click edit (or "+ Add your own note").
+ *   your definitions  >  AI definition  >  dictionary
+ *
+ * When a specific book is in context (`bookScoped`), the user's own definitions —
+ * several are allowed — replace everything; otherwise the book's AI senses replace the
+ * dictionary; otherwise the dictionary senses show. Outside a book context only the
+ * dictionary shows, with the user's definitions listed below as an addition. Each user
+ * definition edits in place (pencil/trash icons); "+ Add" opens a fresh editor.
  *
  * Layout-neutral — the caller (review card / word modal) supplies the surrounding container.
  */
@@ -47,84 +55,81 @@ export function WordMeaning({
   bookId,
   word,
   definition,
-  note,
+  notes,
+  aiSenses,
   bookScoped,
   loading,
   maxSenses,
-  onNoteSaved,
+  onNotesChanged,
 }: {
-  /** The book the note belongs to; null disables the note editor (dictionary only). */
+  /** The book the user definitions belong to; null disables editing (dictionary only). */
   bookId: string | null;
-  /** The lemma the note keys on. */
+  /** The lemma the definitions key on. */
   word: string;
   definition: WordSense[] | null;
-  note: string | null;
-  /** A specific book is selected → a note overrides the dictionary definition. */
+  /** The user's own definitions for this word in this book. */
+  notes: WordNoteItem[];
+  /** AI contextual senses for this book (when generated), or null. */
+  aiSenses?: WordSense[] | null;
+  /** A specific book is selected → user/AI definitions override the dictionary. */
   bookScoped?: boolean;
   loading?: boolean;
   /** Cap the dictionary senses shown (review uses 5; the modal shows all). */
   maxSenses?: number;
-  /** Called after a successful save/remove with the new note value (null on remove), so the
-   * host can refresh its own copy (modal refetches; the review card updates its queue). */
-  onNoteSaved?: (note: string | null) => void;
+  /** Called with the new list after any successful add/edit/remove, so the host can
+   * refresh its own copy (modal refetches; the review card updates its queue). */
+  onNotesChanged?: (notes: WordNoteItem[]) => void;
 }) {
-  const current = note ?? "";
-  const [localNote, setLocalNote] = useState(current);
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(current);
+  const [localNotes, setLocalNotes] = useState<WordNoteItem[]>(notes);
+  /** Which editor is open: a note id, "new" for the add form, or null. */
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [text, setText] = useState("");
   useEffect(() => {
-    setLocalNote(current);
-    setText(current);
-  }, [current]);
+    setLocalNotes(notes);
+  }, [notes]);
 
   const canNote = !!bookId;
 
+  const applyChange = (next: WordNoteItem[]) => {
+    setLocalNotes(next);
+    setEditingId(null);
+    setText("");
+    onNotesChanged?.(next);
+  };
+
   const save = useMutation({
-    mutationFn: () => setWordNote(bookId!, word, text.trim()),
-    onSuccess: () => {
-      const v = text.trim();
-      setLocalNote(v);
-      setEditing(false);
-      onNoteSaved?.(v);
+    mutationFn: async () => {
+      const value = text.trim();
+      if (editingId === "new") {
+        const created = await addWordNote(bookId!, word, value);
+        return [...localNotes, created];
+      }
+      await updateWordNote(bookId!, word, editingId!, value);
+      return localNotes.map((n) => (n.id === editingId ? { ...n, note: value } : n));
     },
-    onError: (err) => toast.error(errMessage(err, "Couldn't save your note.")),
+    onSuccess: applyChange,
+    onError: (err) => toast.error(errMessage(err, "Couldn't save your definition.")),
   });
   const remove = useMutation({
-    mutationFn: () => deleteWordNote(bookId!, word),
-    onSuccess: () => {
-      setLocalNote("");
-      setText("");
-      setEditing(false);
-      onNoteSaved?.(null);
+    mutationFn: async (noteId: string) => {
+      await deleteWordNote(bookId!, word, noteId);
+      return localNotes.filter((n) => n.id !== noteId);
     },
-    onError: (err) => toast.error(errMessage(err, "Couldn't remove your note.")),
+    onSuccess: applyChange,
+    onError: (err) => toast.error(errMessage(err, "Couldn't remove your definition.")),
   });
 
-  const senses = maxSenses != null ? definition?.slice(0, maxSenses) : definition;
-  const override = !!bookScoped && !!localNote;
+  const startEdit = (n: WordNoteItem) => {
+    setEditingId(n.id);
+    setText(n.note);
+  };
+  const startAdd = () => {
+    setEditingId("new");
+    setText("");
+  };
 
-  const noteActions = (
-    <span className="wm-actions">
-      <button className="icon-btn" title="Edit" aria-label="Edit note" onClick={() => setEditing(true)}>
-        <PencilIcon />
-      </button>
-      <button
-        className="icon-btn"
-        title="Remove"
-        aria-label="Remove note"
-        disabled={remove.isPending}
-        onClick={() => remove.mutate()}
-      >
-        <TrashIcon />
-      </button>
-    </span>
-  );
-
-  const editForm = (label: string) => (
-    <div className="wm-block">
-      <div className="wm-head">
-        <span>{label}</span>
-      </div>
+  const editForm = (
+    <div className="wm-edit">
       <textarea
         className="note-input"
         rows={2}
@@ -136,16 +141,16 @@ export function WordMeaning({
       <div className="note-actions">
         <button
           className="btn primary slim"
-          disabled={!text.trim() || text.trim() === localNote || save.isPending}
+          disabled={!text.trim() || save.isPending}
           onClick={() => save.mutate()}
         >
-          {localNote ? "Update" : "Save"}
+          {editingId === "new" ? "Save" : "Update"}
         </button>
         <button
           className="btn ghost slim"
           onClick={() => {
-            setEditing(false);
-            setText(localNote);
+            setEditingId(null);
+            setText("");
           }}
         >
           Cancel
@@ -154,20 +159,88 @@ export function WordMeaning({
     </div>
   );
 
-  // Book-scoped + a note → the note IS the definition.
-  if (override) {
+  /** The user's definitions as a block: list + per-row actions + the add editor. */
+  const notesBlock = (label: string) => (
+    <div className="wm-block">
+      <div className="wm-head">
+        <span>{label}</span>
+      </div>
+      {localNotes.map((n) =>
+        editingId === n.id ? (
+          <div key={n.id}>{editForm}</div>
+        ) : (
+          <div key={n.id} className="wm-note-row">
+            <p className="wm-note-text">{n.note}</p>
+            <span className="wm-actions">
+              <button
+                className="icon-btn"
+                title="Edit"
+                aria-label="Edit definition"
+                onClick={() => startEdit(n)}
+              >
+                <PencilIcon />
+              </button>
+              <button
+                className="icon-btn"
+                title="Remove"
+                aria-label="Remove definition"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(n.id)}
+              >
+                <TrashIcon />
+              </button>
+            </span>
+          </div>
+        ),
+      )}
+      {editingId === "new" ? (
+        editForm
+      ) : (
+        <button className="wm-add" onClick={startAdd}>
+          {localNotes.length > 0 ? "+ Add another definition" : "+ Add your own definition"}
+        </button>
+      )}
+    </div>
+  );
+
+  const sensesList = (senses: WordSense[]) => (
+    <ol className="senses">
+      {senses.map((s, i) => (
+        <li key={i}>
+          <span className="pos">{s.pos}</span>
+          <span>{s.gloss}</span>
+          {s.example && <span className="muted small sense-ex">“{s.example}”</span>}
+        </li>
+      ))}
+    </ol>
+  );
+
+  // Book-scoped + own definitions → they ARE the definition (AI + dictionary hidden).
+  if (bookScoped && (localNotes.length > 0 || editingId === "new")) {
     return (
       <div className="word-meaning">
-        {editing ? (
-          editForm("Your definition")
-        ) : (
-          <div className="wm-block">
-            <div className="wm-head">
-              <span>Your definition</span>
-              {noteActions}
-            </div>
-            <p className="wm-note-text">{localNote}</p>
+        {notesBlock(localNotes.length > 1 ? "Your definitions" : "Your definition")}
+      </div>
+    );
+  }
+
+  // Book-scoped + an AI definition → it replaces the dictionary for this book.
+  if (bookScoped && aiSenses && aiSenses.length > 0) {
+    return (
+      <div className="word-meaning">
+        <div className="wm-block">
+          <div className="wm-head">
+            <span>
+              AI definition <span className="ai-badge">AI</span>
+            </span>
           </div>
+          {sensesList(aiSenses)}
+          <p className="muted small">AI-generated from this book’s context — may be imprecise.</p>
+        </div>
+        {canNote && (
+          <button className="wm-add" onClick={startAdd}>
+            + Add your own definition
+          </button>
         )}
       </div>
     );
@@ -181,35 +254,19 @@ export function WordMeaning({
         </div>
         {loading ? (
           <p className="muted small">Loading…</p>
-        ) : senses && senses.length > 0 ? (
-          <ol className="senses">
-            {senses.map((s, i) => (
-              <li key={i}>
-                <span className="pos">{s.pos}</span>
-                <span>{s.gloss}</span>
-                {s.example && <span className="muted small sense-ex">“{s.example}”</span>}
-              </li>
-            ))}
-          </ol>
+        ) : definition && definition.length > 0 ? (
+          sensesList(maxSenses != null ? definition.slice(0, maxSenses) : definition)
         ) : (
           <p className="muted small">No definition found for this word.</p>
         )}
       </div>
 
       {canNote &&
-        (editing ? (
-          editForm("Your note")
-        ) : localNote ? (
-          <div className="wm-block">
-            <div className="wm-head">
-              <span>Your note</span>
-              {noteActions}
-            </div>
-            <p className="wm-note-text">{localNote}</p>
-          </div>
+        (localNotes.length > 0 || editingId === "new" ? (
+          notesBlock(localNotes.length > 1 ? "Your notes" : "Your note")
         ) : (
-          <button className="wm-add" onClick={() => setEditing(true)}>
-            + Add your own note
+          <button className="wm-add" onClick={startAdd}>
+            {bookScoped ? "+ Add your own definition" : "+ Add your own note"}
           </button>
         ))}
     </div>

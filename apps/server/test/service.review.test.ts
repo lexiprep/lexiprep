@@ -32,7 +32,15 @@ async function statusOf(lemma: string): Promise<string | undefined> {
 describe("reviewBatch", () => {
   it("flags `learning` and marks the rest `known` by default", async () => {
     const res = await reviewBatch(userId, book, ["alpha", "beta", "gamma"], ["alpha"]);
-    expect(res).toEqual({ learning: 1, resolved: 2 });
+    expect(res).toMatchObject({ learning: 1, resolved: 2 });
+    // The transitions feed the AI-definition auto-trigger (new learning words only).
+    expect(res.transitions).toEqual(
+      expect.arrayContaining([
+        { lemma: "alpha", from: null, to: "learning" },
+        { lemma: "beta", from: null, to: "known" },
+        { lemma: "gamma", from: null, to: "known" },
+      ]),
+    );
     expect(await statusOf("alpha")).toBe("learning");
     expect(await statusOf("beta")).toBe("known");
     expect(await statusOf("gamma")).toBe("known");

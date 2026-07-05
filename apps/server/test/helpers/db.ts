@@ -10,7 +10,7 @@ const {
   bookFiles,
   userWords,
   wordLevels,
-  definitions,
+  wordSenses,
   wordNotes,
   featureLimits,
 } = schema;
@@ -24,6 +24,9 @@ const TABLES = [
   "user_words",
   "book_words",
   "book_files",
+  "ai_definitions",
+  "word_senses",
+  "definition_fetches",
   "definitions",
   "word_levels",
   "books",
@@ -102,13 +105,25 @@ export async function addWordLevel(
   await db.insert(wordLevels).values({ language, lemma, level, source });
 }
 
+/** Seed dictionary senses (normalized `word_senses`, book_id null) for one lemma. */
 export async function addDefinition(
   language: string,
   lemma: string,
   senses: WordSense[],
-  source = "wordnet",
+  source = "oewn-2025",
 ): Promise<void> {
-  await db.insert(definitions).values({ language, lemma, senses, source });
+  if (senses.length === 0) return;
+  await db.insert(wordSenses).values(
+    senses.map((s, idx) => ({
+      language,
+      lemma,
+      idx,
+      pos: s.pos,
+      gloss: s.gloss,
+      example: s.example ?? null,
+      source,
+    })),
+  );
 }
 
 export async function setUserWord(
@@ -141,4 +156,18 @@ export async function addBookFile(
     sizeBytes: data.length,
     data,
   });
+}
+
+/** Seed an AI-definition job row (default `pending`). Returns its id. */
+export async function addAiDefinition(
+  bookId: string,
+  lemma: string,
+  status: "pending" | "done" | "failed" = "pending",
+  over: Partial<typeof schema.aiDefinitions.$inferInsert> = {},
+): Promise<string> {
+  const [row] = await db
+    .insert(schema.aiDefinitions)
+    .values({ bookId, lemma, status, ...over })
+    .returning({ id: schema.aiDefinitions.id });
+  return row!.id;
 }

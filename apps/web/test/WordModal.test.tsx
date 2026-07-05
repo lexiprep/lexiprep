@@ -11,8 +11,12 @@ vi.mock("../src/lib/api", () => ({
   getWordDetail: vi.fn(),
   setWordStatus: vi.fn(),
   clearWordStatus: vi.fn(),
-  setWordNote: vi.fn(),
+  addWordNote: vi.fn(),
+  updateWordNote: vi.fn(),
   deleteWordNote: vi.fn(),
+  generateAiDefinition: vi.fn(),
+  checkUsage: vi.fn(),
+  ApiError: class ApiError extends Error {},
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -26,7 +30,9 @@ const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
   status: null,
   forms: [{ word: "ocean", count: 8, example: null }],
   definition: [{ pos: "noun", gloss: "a large body of salt water" }],
-  note: null,
+  notes: [],
+  aiDefinition: null,
+  aiDefinitionEnabled: false,
   ...over,
 });
 
@@ -56,7 +62,7 @@ beforeEach(() => {
   vi.clearAllMocks(); // module-level mocks retain call history across tests otherwise
   vi.mocked(api.setWordStatus).mockResolvedValue({ ok: true, count: 1 });
   vi.mocked(api.clearWordStatus).mockResolvedValue({ ok: true });
-  vi.mocked(api.setWordNote).mockResolvedValue({ ok: true });
+  vi.mocked(api.addWordNote).mockResolvedValue({ id: "note-1", note: "god of the sea here" });
 });
 
 describe("WordModal", () => {
@@ -115,7 +121,7 @@ describe("WordModal", () => {
     // Optimistic: the button shows active immediately, without awaiting the request.
     expect(screen.getByRole("button", { name: "✓ Known" })).toBeInTheDocument();
     await waitFor(() =>
-      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "known", "en", "book"),
+      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "known", "en", "book", undefined),
     );
   });
 
@@ -140,7 +146,7 @@ describe("WordModal", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Learning" }));
     await waitFor(() =>
-      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "learning", "en", "book"),
+      expect(api.setWordStatus).toHaveBeenCalledWith("ocean", "learning", "en", "book", undefined),
     );
   });
 
@@ -192,7 +198,7 @@ describe("WordModal", () => {
   });
 
   it("does NOT notify the host when only a note is saved", async () => {
-    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ note: null }));
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ notes: [] }));
     const onStatusChange = vi.fn();
     renderModal(undefined, onStatusChange);
 
@@ -202,12 +208,12 @@ describe("WordModal", () => {
     fireEvent.change(textarea, { target: { value: "god of the sea here" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(api.setWordNote).toHaveBeenCalled());
+    await waitFor(() => expect(api.addWordNote).toHaveBeenCalled());
     expect(onStatusChange).not.toHaveBeenCalled();
   });
 
   it("saves a per-book note", async () => {
-    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ note: null }));
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ notes: [] }));
     renderModal();
 
     fireEvent.click(await screen.findByRole("button", { name: /add your own note/i }));
@@ -216,7 +222,7 @@ describe("WordModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
-      expect(api.setWordNote).toHaveBeenCalledWith("book-1", "ocean", "god of the sea here"),
+      expect(api.addWordNote).toHaveBeenCalledWith("book-1", "ocean", "god of the sea here"),
     );
   });
 });

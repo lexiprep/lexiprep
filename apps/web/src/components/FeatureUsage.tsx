@@ -11,8 +11,14 @@ import { checkUsage, type PaidFeatureSlug, type UsageCheck } from "../lib/api";
  * `["usage", slug]` query after a guarded call so the state updates live (a 429 flips
  * it to "limit reached"; a success counts `remaining` down).
  */
-export function useFeatureUsage(slug: PaidFeatureSlug) {
-  return useQuery({ queryKey: ["usage", slug], queryFn: () => checkUsage(slug) });
+export function useFeatureUsage(slug: PaidFeatureSlug, enabled = true) {
+  return useQuery({
+    queryKey: ["usage", slug],
+    queryFn: () => checkUsage(slug),
+    // Callers gate this (e.g. only while an action button is visible) so surfaces
+    // without anything to protect don't hit /usage/check at all.
+    enabled,
+  });
 }
 
 /** Human message for a hit limit, or null when the user still has usage. */

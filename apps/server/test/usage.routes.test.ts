@@ -70,21 +70,6 @@ describe("POST /api/usage/check", () => {
   });
 });
 
-describe("POST /api/usage/demo (guarded)", () => {
-  it("serves until the limit, then 429s with Retry-After — unbypassable", async () => {
-    await addFeatureLimit("ai-word-definition-from-context", "minute", 2);
-
-    const call = () =>
-      app.inject({ method: "POST", url: "/api/usage/demo", headers: { cookie } });
-
-    expect((await call()).statusCode).toBe(200);
-    expect((await call()).statusCode).toBe(200);
-
-    const blocked = await call();
-    expect(blocked.statusCode).toBe(429);
-    expect(blocked.headers["retry-after"]).toBeDefined();
-    const body = blocked.json() as { error: string; slug: string; retryAfter: number };
-    expect(body.slug).toBe("ai-word-definition-from-context");
-    expect(body.retryAfter).toBeGreaterThan(0);
-  });
-});
+// The old dev-only `/api/usage/demo` stub (and its guard test) was replaced by the real
+// AI-definition endpoint — its 429/Retry-After behavior is covered in
+// `routes.aiDefinition.test.ts`, and the consume/refund engine in `usage.service.test.ts`.

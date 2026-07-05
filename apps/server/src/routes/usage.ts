@@ -1,8 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth/session.js";
-import { env } from "../env.js";
 import { FEATURE_META, PAID_FEATURES, isPaidFeature } from "../usage/features.js";
-import { requireUsage } from "../usage/guard.js";
 import { peek } from "../usage/service.js";
 
 export async function usageRoutes(app: FastifyInstance): Promise<void> {
@@ -39,18 +37,4 @@ export async function usageRoutes(app: FastifyInstance): Promise<void> {
     return peek(request.user!.id, slug);
   });
 
-  // Dev-only fake protected endpoint: proves the guard consumes + 429s at the limit
-  // and drives the FE tooltip locally, without metering any currently-free feature.
-  // Never mounted in production.
-  if (env.NODE_ENV !== "production") {
-    app.post(
-      "/usage/demo",
-      { preHandler: requireUsage("ai-word-definition-from-context") },
-      async () => ({
-        ok: true,
-        feature: "ai-word-definition-from-context",
-        stub: true,
-      }),
-    );
-  }
 }

@@ -19,6 +19,7 @@ import {
   type ReviewSession,
   type ReviewWord,
   type UserSettings,
+  type WordNoteItem,
   type WordSense,
 } from "../lib/api";
 import { usePersistentState } from "../lib/usePersistentState";
@@ -55,11 +56,13 @@ interface DisplayCard {
   example: string | null;
   level: string | null;
   definition: WordSense[] | null;
-  /** Representative book — lets the back show a per-book note editor. */
+  /** Representative book — lets the back show a per-book definition editor. */
   bookId: string | null;
   bookTitle: string | null;
-  /** The user's own note (custom meaning) for that book, or null. */
-  note: string | null;
+  /** The user's own definitions for that book (several allowed; replace the rest). */
+  notes: WordNoteItem[];
+  /** AI contextual senses for that book (replace the dictionary), or null. */
+  aiSenses: WordSense[] | null;
   /** Surface forms to bold in the context sentence. */
   forms: string[];
   preview: GradePreview | null;
@@ -73,7 +76,8 @@ const fromCard = (c: ReviewCard): DisplayCard => ({
   definition: c.definition,
   bookId: c.bookId,
   bookTitle: c.bookTitle,
-  note: c.note,
+  notes: c.notes,
+  aiSenses: c.aiSenses,
   forms: c.forms,
   preview: c.preview,
 });
@@ -86,7 +90,8 @@ const fromWord = (w: ReviewWord): DisplayCard => ({
   definition: null,
   bookId: w.bookId,
   bookTitle: w.bookTitle,
-  note: null,
+  notes: [],
+  aiSenses: null,
   forms: [w.word],
   preview: null,
 });
@@ -253,8 +258,8 @@ export function ReviewPage() {
 
   // Persist a saved/removed note back onto the queued card so its "my definition" view stays
   // consistent if the card reshows later this session.
-  const setCardNote = (lemma: string, note: string | null) =>
-    setQueue((prev) => prev.map((c) => (c.lemma === lemma ? { ...c, note } : c)));
+  const setCardNotes = (lemma: string, notes: WordNoteItem[]) =>
+    setQueue((prev) => prev.map((c) => (c.lemma === lemma ? { ...c, notes } : c)));
 
   function submitGrade(g: Grade) {
     if (!head || !revealed || grade.isPending) return;
@@ -301,7 +306,7 @@ export function ReviewPage() {
           gradePending={gradePending}
           onReveal={() => head && setRevealedLemma(head.lemma)}
           onGrade={submitGrade}
-          onNoteSaved={setCardNote}
+          onNotesChanged={setCardNotes}
           onExit={endSession}
         />
       </section>
@@ -446,7 +451,7 @@ function ReviewSurface({
   gradePending,
   onReveal,
   onGrade,
-  onNoteSaved,
+  onNotesChanged,
   onExit,
 }: {
   head: DisplayCard | undefined;
@@ -459,7 +464,7 @@ function ReviewSurface({
   gradePending: boolean;
   onReveal: () => void;
   onGrade: (g: Grade) => void;
-  onNoteSaved: (lemma: string, note: string | null) => void;
+  onNotesChanged: (lemma: string, notes: WordNoteItem[]) => void;
   onExit: () => void;
 }) {
   return (
@@ -526,10 +531,11 @@ function ReviewSurface({
                   bookId={head.bookId}
                   word={head.lemma}
                   definition={head.definition}
-                  note={head.note}
+                  notes={head.notes}
+                  aiSenses={head.aiSenses}
                   bookScoped={bookScoped}
                   maxSenses={5}
-                  onNoteSaved={(note) => onNoteSaved(head.lemma, note)}
+                  onNotesChanged={(notes) => onNotesChanged(head.lemma, notes)}
                 />
               </div>
 

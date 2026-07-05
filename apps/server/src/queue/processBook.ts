@@ -14,9 +14,10 @@ function baseLanguage(lang: string | undefined): string {
 /**
  * Pick the reader by content, not filename: PDFs start with "%PDF-", EPUBs are
  * zips. Compares raw bytes so it works whether the driver hands back a Node
- * Buffer (postgres.js) or a plain Uint8Array (pglite in tests).
+ * Buffer (postgres.js) or a plain Uint8Array (pglite in tests). Also used by the
+ * AI-definition context extractor (`ai/context.ts`), which re-reads stored files.
  */
-function isPdf(data: Uint8Array): boolean {
+export function isPdf(data: Uint8Array): boolean {
   // "%PDF-" = 0x25 0x50 0x44 0x46 0x2d
   return (
     data.length >= 5 &&

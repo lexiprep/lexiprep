@@ -9,6 +9,7 @@ import {
   type WordEventSource,
 } from "../lib/api";
 import { formSetOf, highlightForms } from "../lib/highlight";
+import { AiDefinitionSection } from "./AiDefinitionSection";
 import { LevelBadge, StatusBadge } from "./badges";
 import { ModalOverlay } from "./ModalOverlay";
 import { WordMeaning } from "./WordMeaning";
@@ -67,6 +68,8 @@ export function WordModal({
   const detail = useQuery({
     queryKey: ["word", bookId, word],
     queryFn: () => getWordDetail(bookId, word),
+    // Poll while an AI definition is generating (same pattern as book processing).
+    refetchInterval: (q) => (q.state.data?.aiDefinition?.status === "pending" ? 1500 : false),
   });
 
   // A status change touches this word's own detail, the book header counts, and the
@@ -102,7 +105,10 @@ export function WordModal({
   }, [d, pending]);
 
   const mark = useMutation({
-    mutationFn: (status: UserWordStatus) => setWordStatus(word, status, language, source),
+    // Send the book context only when one is truly in scope — it lets the server
+    // auto-generate the AI definition when the word enters `learning`.
+    mutationFn: (status: UserWordStatus) =>
+      setWordStatus(word, status, language, source, bookScoped ? bookId : undefined),
     // Reconcile only on success — a failed write must not drop the row from the host batch.
     onSuccess: (_data, status) => afterStatusChange(status),
     onError: (err) => {
@@ -173,12 +179,23 @@ export function WordModal({
             bookId={bookId}
             word={word}
             definition={d?.definition ?? null}
-            note={d?.note ?? null}
+            notes={d?.notes ?? []}
+            aiSenses={d?.aiDefinition?.status === "done" ? d.aiDefinition.senses : null}
             bookScoped={bookScoped}
             loading={detail.isLoading}
-            onNoteSaved={refreshDetail}
+            onNotesChanged={refreshDetail}
           />
         </div>
+
+        {d && (
+          <AiDefinitionSection
+            bookId={bookId}
+            word={word}
+            aiDefinition={d.aiDefinition}
+            enabled={d.aiDefinitionEnabled}
+            bookScoped={bookScoped}
+          />
+        )}
 
         {d && d.forms.length > 1 && (
           <div className="modal-section">
