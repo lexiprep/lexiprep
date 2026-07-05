@@ -122,7 +122,9 @@ describe("processAiDefinition", () => {
     expect(call.user).toContain("whale, whales");
     expect(call.user).toContain("<context_examples>");
     expect(call.user).toContain("The whale surfaced at dawn.");
-    expect(call.system).toContain("at most 3");
+    // No meaning-count in the prose (a named cap becomes a target); one is the default.
+    expect(call.system).toContain("give exactly ONE meaning");
+    expect(call.system).not.toMatch(/at most \d/);
   });
 
   it("defers (requeue with startAfter) when over the limit, leaving the row pending", async () => {
