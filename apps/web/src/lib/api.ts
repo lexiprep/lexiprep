@@ -62,6 +62,22 @@ export interface WordSense {
   example?: string;
 }
 
+export type AiDefinitionStatus = "pending" | "done" | "failed";
+
+/** The AI contextual definition for this word in this book (job state + senses). */
+export interface AiDefinition {
+  status: AiDefinitionStatus;
+  /** The generated meanings; set once `status` is `done`. */
+  senses: WordSense[] | null;
+  error: string | null;
+}
+
+/** One of the user's own per-book definitions (several allowed per word). */
+export interface WordNoteItem {
+  id: string;
+  note: string;
+}
+
 export interface WordDetail {
   word: string;
   lemma: string | null;
@@ -71,8 +87,11 @@ export interface WordDetail {
   status: UserWordStatus | null;
   forms: WordForm[];
   definition: WordSense[] | null;
-  /** The user's own per-book note for this word. */
-  note: string | null;
+  /** The user's own per-book definitions; book-scoped they replace AI/dictionary. */
+  notes: WordNoteItem[];
+  aiDefinition: AiDefinition | null;
+  /** False when the server has no OpenRouter key — hide the AI UI entirely. */
+  aiDefinitionEnabled: boolean;
 }
 
 export interface UserWord {
@@ -197,16 +216,33 @@ export const getBookWords = (id: string, params: WordsParams) =>
 export const getWordDetail = (id: string, word: string) =>
   request<WordDetail>(`/api/books/${id}/words/${encodeURIComponent(word)}`);
 
-export const setWordNote = (id: string, word: string, note: string) =>
-  request<{ ok: true }>(`/api/books/${id}/words/${encodeURIComponent(word)}/note`, {
-    method: "PUT",
-    body: JSON.stringify({ note }),
-  });
+export const addWordNote = (id: string, word: string, note: string) =>
+  request<{ note: WordNoteItem }>(
+    `/api/books/${id}/words/${encodeURIComponent(word)}/notes`,
+    { method: "POST", body: JSON.stringify({ note }) },
+  ).then((r) => r.note);
 
-export const deleteWordNote = (id: string, word: string) =>
-  request<{ ok: true }>(`/api/books/${id}/words/${encodeURIComponent(word)}/note`, {
-    method: "DELETE",
-  });
+export const updateWordNote = (id: string, word: string, noteId: string, note: string) =>
+  request<{ ok: true }>(
+    `/api/books/${id}/words/${encodeURIComponent(word)}/notes/${noteId}`,
+    { method: "PUT", body: JSON.stringify({ note }) },
+  );
+
+export const deleteWordNote = (id: string, word: string, noteId: string) =>
+  request<{ ok: true }>(
+    `/api/books/${id}/words/${encodeURIComponent(word)}/notes/${noteId}`,
+    { method: "DELETE" },
+  );
+
+/**
+ * Request the AI contextual definition for a word in a book (202 → poll the word
+ * detail). 429 = usage limit (ApiError carries `retryAfter`); 409 = already generated.
+ */
+export const generateAiDefinition = (id: string, word: string) =>
+  request<{ aiDefinition: AiDefinition }>(
+    `/api/books/${id}/words/${encodeURIComponent(word)}/ai-definition`,
+    { method: "POST" },
+  );
 
 export const reviewBatch = (
   id: string,
@@ -321,10 +357,12 @@ export const setWordStatus = (
   language: string,
   /** Where the change came from — drives the "learned" series. See {@link WordEventSource}. */
   source: WordEventSource,
+  /** Book context: lets the server auto-generate an AI definition on `learning`. */
+  bookId?: string,
 ) =>
   request<{ ok: true; count: number }>("/api/words", {
     method: "POST",
-    body: JSON.stringify({ language, source, items: [{ lemma, status }] }),
+    body: JSON.stringify({ language, source, bookId, items: [{ lemma, status }] }),
   });
 
 export const clearWordStatus = (
@@ -379,11 +417,13 @@ export interface ReviewCard {
   level: string | null;
   /** Cached senses (POS + gloss + example); null if the dictionary has none. */
   definition: WordSense[] | null;
-  /** Representative book the word comes from — used to attach a per-book note. */
+  /** Representative book the word comes from — used to attach per-book definitions. */
   bookId: string | null;
   bookTitle: string | null;
-  /** The user's own note (custom meaning) for that book, or null. */
-  note: string | null;
+  /** The user's own definitions for that book (several allowed; replace the rest). */
+  notes: WordNoteItem[];
+  /** AI contextual senses generated for that book (replace the dictionary), or null. */
+  aiSenses: WordSense[] | null;
   /** Every surface form of the lemma — used to bold the word in the context sentence. */
   forms: string[];
   state: SrsState;
@@ -529,10 +569,4 @@ export const checkUsage = (slug: PaidFeatureSlug) =>
   request<UsageCheck>("/api/usage/check", {
     method: "POST",
     body: JSON.stringify({ slug }),
-  });
-
-/** Dev-only: the fake protected endpoint that consumes one use (429 at the limit). */
-export const callUsageDemo = () =>
-  request<{ ok: true; feature: PaidFeatureSlug; stub: true }>("/api/usage/demo", {
-    method: "POST",
   });

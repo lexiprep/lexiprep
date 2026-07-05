@@ -1,7 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth/session.js";
+import { env } from "../env.js";
 import { getBoss, PROCESS_BOOK_QUEUE } from "../queue/boss.js";
 import {
+  AI_DEFINITION_SLUG,
+  requestAiDefinition,
+  triggerAiDefinitions,
+} from "../ai/definitionService.js";
+import { peek } from "../usage/service.js";
+import { retryAfterSeconds } from "../usage/guard.js";
+import { db } from "../db/client.js";
+import { bookWords } from "../db/schema.js";
+import { and, eq, sql } from "drizzle-orm";
+import {
+  addWordNote,
   createBook,
   deleteWordNote,
   finishBookReview,
@@ -13,9 +25,11 @@ import {
   markBookOpened,
   reprocessBook,
   reviewBatch,
-  setWordNote,
   updateBook,
+  updateWordNote,
 } from "../books/service.js";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function bookRoutes(app: FastifyInstance): Promise<void> {
   // Every route here requires a session.
@@ -150,8 +164,9 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
     return detail;
   });
 
-  // Per-book user note for a word (a meaning specific to this book's context).
-  app.put("/books/:id/words/:word/note", async (request, reply) => {
+  // The user's own per-book definitions for a word (several allowed; in a book-scoped
+  // view they replace the AI/dictionary definition). Rows are addressed by note id.
+  app.post("/books/:id/words/:word/notes", async (request, reply) => {
     const { id, word } = request.params as { id: string; word: string };
     const book = await getBook(request.user!.id, id);
     if (!book) {
@@ -163,18 +178,43 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       reply.code(400);
       return { error: "`note` is required" };
     }
-    await setWordNote(request.user!.id, book, decodeURIComponent(word), note.trim());
-    return { ok: true };
+    const created = await addWordNote(
+      request.user!.id,
+      book,
+      decodeURIComponent(word),
+      note.trim(),
+    );
+    return { note: created };
   });
 
-  app.delete("/books/:id/words/:word/note", async (request, reply) => {
-    const { id, word } = request.params as { id: string; word: string };
+  app.put("/books/:id/words/:word/notes/:noteId", async (request, reply) => {
+    const { id, noteId } = request.params as { id: string; word: string; noteId: string };
     const book = await getBook(request.user!.id, id);
-    if (!book) {
+    if (!book || !UUID_RE.test(noteId)) {
       reply.code(404);
       return { error: "Not found" };
     }
-    await deleteWordNote(request.user!.id, book, decodeURIComponent(word));
+    const { note } = (request.body ?? {}) as { note?: string };
+    if (typeof note !== "string" || !note.trim()) {
+      reply.code(400);
+      return { error: "`note` is required" };
+    }
+    const found = await updateWordNote(request.user!.id, book, noteId, note.trim());
+    if (!found) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    return { ok: true };
+  });
+
+  app.delete("/books/:id/words/:word/notes/:noteId", async (request, reply) => {
+    const { id, noteId } = request.params as { id: string; word: string; noteId: string };
+    const book = await getBook(request.user!.id, id);
+    if (!book || !UUID_RE.test(noteId)) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    await deleteWordNote(request.user!.id, book, noteId);
     return { ok: true };
   });
 
@@ -200,12 +240,61 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       reply.code(400);
       return { error: "Provide `words: string[]` (the batch) and `learning: string[]`, or `finish: true`" };
     }
-    return reviewBatch(
+    const { transitions, ...result } = await reviewBatch(
       request.user!.id,
       book,
       body.words,
       Array.isArray(body.learning) ? body.learning : [],
       body.rest === "ignored" ? "ignored" : "known",
     );
+    // Flagged words just entered `learning` → generate their AI definitions (spec 10).
+    await triggerAiDefinitions(request.log, book, transitions);
+    return result;
+  });
+
+  // Manually request the AI contextual definition for a word (the modal button).
+  // Advisory 429 up front for UX; the authoritative reserve+refund lives in the worker.
+  app.post("/books/:id/words/:word/ai-definition", async (request, reply) => {
+    const { id, word } = request.params as { id: string; word: string };
+    const book = await getBook(request.user!.id, id);
+    if (!book) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    const key = decodeURIComponent(word).trim().toLowerCase();
+    const [inBook] = await db
+      .select({ id: bookWords.id })
+      .from(bookWords)
+      .where(
+        and(
+          eq(bookWords.bookId, book.id),
+          sql`coalesce(${bookWords.lemma}, ${bookWords.word}) = ${key}`,
+        ),
+      )
+      .limit(1);
+    if (!inBook) {
+      reply.code(404);
+      return { error: "Word not in this book" };
+    }
+    if (!env.OPENROUTER_API_KEY) {
+      reply.code(503);
+      return { error: "AI definitions are not configured" };
+    }
+
+    const usage = await peek(request.user!.id, AI_DEFINITION_SLUG);
+    if (!usage.allowed) {
+      const retryAfter = retryAfterSeconds(usage.windows);
+      reply.header("Retry-After", String(retryAfter));
+      reply.code(429);
+      return { error: "Usage limit reached", slug: AI_DEFINITION_SLUG, retryAfter };
+    }
+
+    const result = await requestAiDefinition(book, key, { retryFailed: true });
+    if (result === "done") {
+      reply.code(409);
+      return { error: "AI definition already generated" };
+    }
+    reply.code(202);
+    return { aiDefinition: { status: "pending" } };
   });
 }

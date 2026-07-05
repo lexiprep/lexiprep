@@ -9,9 +9,9 @@
  * Source: Open English WordNet 2025 (CC BY 4.0). https://github.com/globalwordnet/english-wordnet
  */
 import JSZip from "jszip";
-import { sql } from "drizzle-orm";
+import { and, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../src/db/client.js";
-import { definitions, type WordSense } from "../src/db/schema.js";
+import { wordSenses, type WordSense } from "../src/db/schema.js";
 
 const ZIP_URL =
   "https://github.com/globalwordnet/english-wordnet/releases/download/2025-edition/english-wordnet-2025-json.zip";
@@ -105,27 +105,46 @@ async function main() {
   });
   console.log(`Parsed ${rows.length} lemmas. Upserting…`);
 
-  // 3. Upsert — never deletes, so the live dictionary is updated in place.
+  // 3. Replace per lemma-chunk, each in its own transaction: delete that chunk's
+  // dictionary rows (book_id IS NULL — freedict included, the bundle wins; per-book AI
+  // senses are never touched) and insert the fresh senses. The dictionary stays fully
+  // available throughout — no downtime, re-runnable.
   let done = 0;
   for (let i = 0; i < rows.length; i += CHUNK) {
-    await db
-      .insert(definitions)
-      .values(rows.slice(i, i + CHUNK))
-      .onConflictDoUpdate({
-        target: [definitions.language, definitions.lemma],
-        set: {
-          senses: sql`excluded.senses`,
-          source: sql`excluded.source`,
-          updatedAt: sql`now()`,
-        },
-      });
-    done += Math.min(CHUNK, rows.length - i);
+    const chunk = rows.slice(i, i + CHUNK);
+    await db.transaction(async (tx) => {
+      await tx.delete(wordSenses).where(
+        and(
+          sql`${wordSenses.language} = ${LANGUAGE}`,
+          inArray(
+            wordSenses.lemma,
+            chunk.map((r) => r.lemma),
+          ),
+          isNull(wordSenses.bookId),
+        ),
+      );
+      await tx.insert(wordSenses).values(
+        chunk.flatMap((r) =>
+          r.senses.map((s, idx) => ({
+            language: r.language,
+            lemma: r.lemma,
+            idx,
+            pos: s.pos,
+            gloss: s.gloss,
+            example: s.example ?? null,
+            source: r.source,
+          })),
+        ),
+      );
+    });
+    done += chunk.length;
   }
 
   const [{ n }] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(definitions);
-  console.log(`Done. Upserted ${done}; definitions table now holds ${n} entries.`);
+    .select({ n: sql<number>`count(distinct ${wordSenses.lemma})::int` })
+    .from(wordSenses)
+    .where(isNull(wordSenses.bookId));
+  console.log(`Done. Upserted ${done} lemmas; the dictionary now holds ${n} lemmas.`);
 }
 
 main()

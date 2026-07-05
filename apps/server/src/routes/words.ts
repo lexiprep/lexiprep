@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth/session.js";
 import { USER_WORD_STATUSES, type UserWordStatus, type WordEventSource } from "../db/schema.js";
+import { triggerAiDefinitions } from "../ai/definitionService.js";
 import {
   buildAnkiDeck,
   countLearningWords,
   countUserWordsByStatus,
   deleteUserWord,
+  getBook,
   getVocabularyTimeseries,
   GRANULARITIES,
   listLearningWords,
@@ -185,9 +187,15 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       lemma?: string;
       status?: string;
       source?: string;
+      /** Book context (the modal sends it) — enables the AI-definition auto-trigger. */
+      bookId?: string;
       items?: { lemma?: string; status?: string }[];
     };
     const language = body.language ?? DEFAULT_LANGUAGE;
+    if (body.bookId !== undefined && !UUID_RE.test(body.bookId)) {
+      reply.code(400);
+      return { error: "bookId must be a valid id" };
+    }
     const raw = body.items ?? (body.lemma ? [{ lemma: body.lemma, status: body.status }] : []);
     if (raw.length === 0) {
       reply.code(400);
@@ -211,7 +219,19 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       items.push({ lemma: it.lemma, status: it.status });
     }
 
-    await upsertUserWords(request.user!.id, language, items, eventSource(body.source));
+    const transitions = await upsertUserWords(
+      request.user!.id,
+      language,
+      items,
+      eventSource(body.source),
+    );
+    // Words that just entered `learning` get an AI definition when a book context was
+    // sent. Ownership is re-checked; a foreign/unknown bookId skips the side-channel
+    // silently — the status write above already succeeded and must not be failed.
+    if (body.bookId) {
+      const book = await getBook(request.user!.id, body.bookId);
+      if (book) await triggerAiDefinitions(request.log, book, transitions);
+    }
     return { ok: true, count: items.length };
   });
 

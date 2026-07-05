@@ -4,9 +4,14 @@ import { sql } from "drizzle-orm";
 import { env } from "../env.js";
 import { db } from "../db/client.js";
 import { processBook } from "./processBook.js";
+import { processAiDefinition, type AiDefinitionJob } from "./processAiDefinition.js";
+import { chatJson } from "../ai/openrouter.js";
 
 /** The queue that runs ebook parsing + enrichment off the request path. */
 export const PROCESS_BOOK_QUEUE = "process-book";
+
+/** The queue that generates AI contextual definitions via OpenRouter (spec 10/13). */
+export const AI_DEFINITION_QUEUE = "ai-definition";
 
 /** Daily prune of the usage ledger so `feature_usage_events` stays bounded. */
 export const PRUNE_USAGE_QUEUE = "prune-usage-events";
@@ -14,6 +19,8 @@ export const PRUNE_USAGE_QUEUE = "prune-usage-events";
 export interface ProcessBookJob {
   bookId: string;
 }
+
+export type { AiDefinitionJob };
 
 let boss: PgBoss | null = null;
 
@@ -30,6 +37,18 @@ export async function startQueue(logger: FastifyBaseLogger): Promise<void> {
   await boss.work<ProcessBookJob>(PROCESS_BOOK_QUEUE, async (jobs) => {
     for (const job of jobs) {
       await processBook(job.data.bookId, logger);
+    }
+  });
+
+  // AI contextual definitions. Deps are injected here (not imported by the worker) so
+  // tests can stub the LLM call, and the requeue closure keeps the worker cycle-free.
+  await boss.createQueue(AI_DEFINITION_QUEUE);
+  await boss.work<AiDefinitionJob>(AI_DEFINITION_QUEUE, async (jobs) => {
+    for (const job of jobs) {
+      await processAiDefinition(job.data, logger, {
+        chatJson,
+        requeue: (payload, opts) => getBoss().send(AI_DEFINITION_QUEUE, payload, opts),
+      });
     }
   });
 

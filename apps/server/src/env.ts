@@ -13,6 +13,11 @@ const schema = z.object({
     .default("dev-only-insecure-secret-change-me-0123456789"),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
   WEB_ORIGIN: z.string().default("http://localhost:5173"),
+  // OpenRouter (AI contextual definitions). Optional: unset or "" disables the feature
+  // (docker-compose `${VAR:-}` passes an empty string, so check truthiness, not presence).
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_DEFINITION_MODEL: z.string().default("google/gemini-3.1-flash-lite"),
+  OPENROUTER_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 export const env = schema.parse(process.env);

@@ -38,6 +38,9 @@ services:
       # where inotify works, can set CHOKIDAR_USEPOLLING=false to drop the polling cost.
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       CHOKIDAR_INTERVAL: ${CHOKIDAR_INTERVAL:-400}
+      # OpenRouter (AI contextual definitions). Optional — empty disables the feature.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_DEFINITION_MODEL: ${OPENROUTER_DEFINITION_MODEL:-google/gemini-3.1-flash-lite}
     working_dir: /workspace/lexiprep/apps/server
     # node_modules live in named volumes (not the host's, which is built against a
     # different pnpm store). The server is the sole installer; it populates the

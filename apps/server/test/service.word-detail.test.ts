@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { db, schema } from "../src/db/client.js";
 import {
-  getWordDetail,
-  setWordNote,
+  addWordNote,
   deleteWordNote,
+  getWordDetail,
+  updateWordNote,
 } from "../src/books/service.js";
 import type { Book } from "../src/db/schema.js";
 import {
@@ -15,7 +16,7 @@ import {
   setUserWord,
 } from "./helpers/db.js";
 
-const { definitions, wordNotes } = schema;
+const { wordSenses, definitionFetches, wordNotes } = schema;
 
 let userId: string;
 let book: Book;
@@ -43,12 +44,12 @@ describe("getWordDetail", () => {
     expect(d!.forms.map((f) => f.word)).toEqual(["said", "says"]);
   });
 
-  it("attaches the user's status and a per-book note", async () => {
+  it("attaches the user's status and per-book definitions", async () => {
     await setUserWord(userId, "en", "say", "learning");
-    await setWordNote(userId, book, "say", "verb of speech");
+    await addWordNote(userId, book, "say", "verb of speech");
     const d = await getWordDetail(userId, book, "say");
     expect(d!.status).toBe("learning");
-    expect(d!.note).toBe("verb of speech");
+    expect(d!.notes.map((n) => n.note)).toEqual(["verb of speech"]);
   });
 
   it("includes the bundled definition when present", async () => {
@@ -57,17 +58,16 @@ describe("getWordDetail", () => {
     expect(d!.definition).toEqual([{ pos: "verb", gloss: "to utter words" }]);
   });
 
-  it("normalizes a legacy attributed-quote example object into a plain string", async () => {
-    // Open English WordNet sometimes stored { text, source }; normalize on read.
-    await db.insert(definitions).values({
-      language: "en",
-      lemma: "say",
-      source: "wordnet",
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      senses: [{ pos: "verb", gloss: "g", example: { text: "quoted", source: "x" } }] as any,
-    });
+  it("keeps sense order and includes examples", async () => {
+    await addDefinition("en", "say", [
+      { pos: "verb", gloss: "to utter words", example: "He said hello." },
+      { pos: "noun", gloss: "the right to influence a decision" },
+    ]);
     const d = await getWordDetail(userId, book, "say");
-    expect(d!.definition).toEqual([{ pos: "verb", gloss: "g", example: "quoted" }]);
+    expect(d!.definition).toEqual([
+      { pos: "verb", gloss: "to utter words", example: "He said hello." },
+      { pos: "noun", gloss: "the right to influence a decision" },
+    ]);
   });
 
   it("returns null for a word not in the book", async () => {
@@ -96,11 +96,11 @@ describe("getWordDetail — Free Dictionary fallback", () => {
     const d = await getWordDetail(userId, book, "obscure");
     expect(d!.definition).toEqual([{ pos: "adj", gloss: "not clear" }]);
 
-    // It was cached (source freedict) so a second lookup hits no network.
+    // It was cached (word_senses rows, source freedict) so a second lookup hits no network.
     const [cached] = await db
       .select()
-      .from(definitions)
-      .where(and(eq(definitions.lemma, "obscure"), eq(definitions.source, "freedict")));
+      .from(wordSenses)
+      .where(and(eq(wordSenses.lemma, "obscure"), eq(wordSenses.source, "freedict")));
     expect(cached).toBeTruthy();
 
     fetchMock.mockClear();
@@ -117,6 +117,13 @@ describe("getWordDetail — Free Dictionary fallback", () => {
     expect(d!.definition).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // The definitive "not found" is recorded as a fetch marker (no sense rows exist).
+    const markers = await db
+      .select()
+      .from(definitionFetches)
+      .where(eq(definitionFetches.lemma, "obscure"));
+    expect(markers).toHaveLength(1);
+
     fetchMock.mockClear();
     const again = await getWordDetail(userId, book, "obscure");
     expect(again!.definition).toEqual([]);
@@ -129,30 +136,55 @@ describe("getWordDetail — Free Dictionary fallback", () => {
     expect(d!.definition).toBeNull();
     const rows = await db
       .select()
-      .from(definitions)
-      .where(eq(definitions.lemma, "obscure"));
+      .from(wordSenses)
+      .where(eq(wordSenses.lemma, "obscure"));
     expect(rows).toHaveLength(0);
+    const markers = await db
+      .select()
+      .from(definitionFetches)
+      .where(eq(definitionFetches.lemma, "obscure"));
+    expect(markers).toHaveLength(0);
   });
 });
 
-describe("setWordNote / deleteWordNote", () => {
+describe("addWordNote / updateWordNote / deleteWordNote", () => {
   beforeEach(async () => {
     await addBookWords(book.id, [{ word: "ship", lemma: "ship", count: 1 }]);
   });
 
-  it("inserts then overwrites the note (upsert)", async () => {
-    await setWordNote(userId, book, "ship", "first");
-    await setWordNote(userId, book, "ship", "second");
-    const [row] = await db
+  it("allows several definitions per word and returns them in creation order", async () => {
+    await addWordNote(userId, book, "ship", "first");
+    await addWordNote(userId, book, "ship", "second");
+    const d = await getWordDetail(userId, book, "ship");
+    expect(d!.notes.map((n) => n.note)).toEqual(["first", "second"]);
+  });
+
+  it("edits one definition by id, leaving the others alone", async () => {
+    const a = await addWordNote(userId, book, "ship", "first");
+    await addWordNote(userId, book, "ship", "second");
+    expect(await updateWordNote(userId, book, a.id, "revised")).toBe(true);
+    const d = await getWordDetail(userId, book, "ship");
+    expect(d!.notes.map((n) => n.note)).toEqual(["revised", "second"]);
+  });
+
+  it("refuses to edit a note that isn't the user's (tenant isolation)", async () => {
+    const a = await addWordNote(userId, book, "ship", "mine");
+    const other = await createUser();
+    const otherBook = await createBook(other, { language: "en" });
+    expect(await updateWordNote(other, otherBook, a.id, "hijack")).toBe(false);
+    const d = await getWordDetail(userId, book, "ship");
+    expect(d!.notes[0]!.note).toBe("mine");
+  });
+
+  it("deletes one definition by id", async () => {
+    const a = await addWordNote(userId, book, "ship", "gone");
+    const b = await addWordNote(userId, book, "ship", "stays");
+    await deleteWordNote(userId, book, a.id);
+    const rows = await db
       .select({ note: wordNotes.note })
       .from(wordNotes)
       .where(and(eq(wordNotes.userId, userId), eq(wordNotes.lemma, "ship")));
-    expect(row?.note).toBe("second");
-  });
-
-  it("deletes the note", async () => {
-    await setWordNote(userId, book, "ship", "note");
-    await deleteWordNote(userId, book, "ship");
-    expect((await getWordDetail(userId, book, "ship"))!.note).toBeNull();
+    expect(rows.map((r) => r.note)).toEqual(["stays"]);
+    expect(b.note).toBe("stays");
   });
 });

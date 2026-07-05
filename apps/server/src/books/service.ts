@@ -19,7 +19,7 @@ import {
   bookWords,
   userWords,
   userWordEvents,
-  definitions,
+  aiDefinitions,
   wordNotes,
   type Book,
   type NewUserWordEvent,
@@ -27,81 +27,14 @@ import {
   type WordEventSource,
   type WordSense,
 } from "../db/schema.js";
-
-const FREEDICT_URL = "https://api.dictionaryapi.dev/api/v2/entries/en/";
-const MAX_SENSES = 5;
-
-/**
- * Coerce sense examples to plain strings. Open English WordNet sometimes stores an
- * example as an attributed quote object `{ text, source }` rather than a string, which
- * violates {@link WordSense} and crashes the React modal ("objects are not valid as a
- * React child"). Normalize on read so existing data is safe without re-importing.
- */
-function normalizeSenses(senses: WordSense[]): WordSense[] {
-  return senses.map((s) => {
-    const ex = s.example as unknown;
-    const example =
-      typeof ex === "string"
-        ? ex
-        : ex && typeof ex === "object" && "text" in ex
-          ? String((ex as { text: unknown }).text)
-          : undefined;
-    return example ? { pos: s.pos, gloss: s.gloss, example } : { pos: s.pos, gloss: s.gloss };
-  });
-}
-
-interface FreeDictEntry {
-  meanings?: {
-    partOfSpeech?: string;
-    definitions?: { definition?: string; example?: string }[];
-  }[];
-}
-
-/**
- * Fallback for words not in the bundled dictionary: fetch from the Free Dictionary API
- * (Wiktionary, CC BY-SA) and cache the result in `definitions` (positive or empty), so
- * each missing word hits the network at most once. Returns null on transient errors
- * (not cached) so it can be retried later.
- */
-async function fetchAndCacheDefinition(
-  language: string,
-  lemma: string,
-): Promise<WordSense[] | null> {
-  let senses: WordSense[];
-  try {
-    const res = await fetch(FREEDICT_URL + encodeURIComponent(lemma));
-    if (res.status === 404) {
-      senses = []; // definitively absent — cache the negative
-    } else if (!res.ok) {
-      return null; // transient (rate limit / outage) — don't cache, allow retry
-    } else {
-      const data = (await res.json()) as FreeDictEntry[];
-      senses = [];
-      const seen = new Set<string>();
-      for (const entry of data) {
-        for (const m of entry.meanings ?? []) {
-          for (const d of m.definitions ?? []) {
-            const gloss = d.definition?.trim();
-            if (!gloss || seen.has(gloss)) continue;
-            seen.add(gloss);
-            senses.push({ pos: m.partOfSpeech ?? "", gloss, example: d.example });
-            if (senses.length >= MAX_SENSES) break;
-          }
-          if (senses.length >= MAX_SENSES) break;
-        }
-        if (senses.length >= MAX_SENSES) break;
-      }
-    }
-  } catch {
-    return null; // network error — don't cache
-  }
-
-  await db
-    .insert(definitions)
-    .values({ language, lemma, senses, source: "freedict" })
-    .onConflictDoNothing({ target: [definitions.language, definitions.lemma] });
-  return senses;
-}
+import {
+  fetchAndCacheDefinition,
+  getAiSenses,
+  getDictionarySenses,
+  getDictionarySensesForLemmas,
+  hasDefinitionFetch,
+} from "../dictionary/service.js";
+import { env } from "../env.js";
 
 export interface UploadInput {
   filename: string;
@@ -482,6 +415,13 @@ export function listUserWords(
     .orderBy(asc(userWords.lemma));
 }
 
+/** One real status change made by {@link upsertUserWords} (no-op re-marks excluded). */
+export interface UserWordTransition {
+  lemma: string;
+  from: UserWordStatus | null;
+  to: UserWordStatus;
+}
+
 /**
  * Bulk upsert of (lemma -> status) for one user+language. Last write wins. Every real
  * change (the status actually differs from the prior value, or the word is new) is recorded
@@ -489,23 +429,27 @@ export function listUserWords(
  * later distinguish a deliberate learning→known (Learning page) from a book-page triage
  * correction (the "learned" series keys on it). Runs in one transaction so the current
  * status and its history can never drift apart.
+ *
+ * Returns the transitions (post-commit), so callers can react to real changes — e.g.
+ * enqueue an AI definition when a word newly enters `learning` — without this module
+ * depending on the queue.
  */
 export async function upsertUserWords(
   userId: string,
   language: string,
   items: UserWordItem[],
   source: WordEventSource,
-): Promise<void> {
+): Promise<UserWordTransition[]> {
   // Dedupe within the batch (later entries win) so one INSERT has no dup conflict keys.
   const byLemma = new Map<string, UserWordStatus>();
   for (const { lemma, status } of items) {
     const key = lemma.trim().toLowerCase();
     if (key) byLemma.set(key, status);
   }
-  if (byLemma.size === 0) return;
+  if (byLemma.size === 0) return [];
   const lemmas = [...byLemma.keys()];
 
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     // Prior statuses, so we can record accurate from→to transitions and skip no-op re-marks.
     const prior = await tx
       .select({ lemma: userWords.lemma, status: userWords.status })
@@ -528,13 +472,16 @@ export async function upsertUserWords(
       });
 
     const events: NewUserWordEvent[] = [];
+    const transitions: UserWordTransition[] = [];
     for (const lemma of lemmas) {
       const to = byLemma.get(lemma)!;
-      const from = prevByLemma.get(lemma) ?? null;
+      const from = (prevByLemma.get(lemma) as UserWordStatus | undefined) ?? null;
       if (from === to) continue; // re-marking the same status — not a transition, don't log
       events.push({ userId, language, lemma, fromStatus: from, toStatus: to, source });
+      transitions.push({ lemma, from, to });
     }
     if (events.length > 0) await tx.insert(userWordEvents).values(events);
+    return transitions;
   });
 }
 
@@ -585,7 +532,7 @@ export async function reviewBatch(
   words: string[],
   learning: string[],
   rest: "known" | "ignored" = "known",
-): Promise<{ learning: number; resolved: number }> {
+): Promise<{ learning: number; resolved: number; transitions: UserWordTransition[] }> {
   const learningSet = new Set(learning.map((w) => w.trim().toLowerCase()));
   const items: UserWordItem[] = [];
   for (const lemma of learningSet) items.push({ lemma, status: "learning" });
@@ -593,8 +540,8 @@ export async function reviewBatch(
     const lemma = raw.trim().toLowerCase();
     if (lemma && !learningSet.has(lemma)) items.push({ lemma, status: rest });
   }
-  await upsertUserWords(userId, book.language, items, "book");
-  return { learning: learningSet.size, resolved: items.length - learningSet.size };
+  const transitions = await upsertUserWords(userId, book.language, items, "book");
+  return { learning: learningSet.size, resolved: items.length - learningSet.size, transitions };
 }
 
 /**
@@ -661,20 +608,20 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
     )
     .limit(1);
 
-  const [def] = await db
-    .select({ senses: definitions.senses })
-    .from(definitions)
-    .where(and(eq(definitions.language, book.language), eq(definitions.lemma, key)))
-    .limit(1);
-  // Fall back to the Free Dictionary API for words the bundled dictionary lacks.
-  let definition = def?.senses ?? null;
+  // Dictionary senses (normalized word_senses; spec 03), falling back to the Free
+  // Dictionary API for words the bundle lacks. `[]` = the API definitively has nothing
+  // (fetch marker present); `null` = never successfully looked up (transient failure).
+  let definition = await getDictionarySenses(book.language, key);
   if (definition === null && book.language === "en") {
-    definition = await fetchAndCacheDefinition(book.language, key);
+    definition = (await hasDefinitionFetch(book.language, key))
+      ? []
+      : await fetchAndCacheDefinition(book.language, key);
   }
-  if (definition) definition = normalizeSenses(definition);
 
-  const [noteRow] = await db
-    .select({ note: wordNotes.note })
+  // The user's own definitions for this word in this book — several are allowed;
+  // book-scoped views show them *instead of* the AI/dictionary definition.
+  const notes = await db
+    .select({ id: wordNotes.id, note: wordNotes.note })
     .from(wordNotes)
     .where(
       and(
@@ -683,7 +630,21 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
         eq(wordNotes.lemma, key),
       ),
     )
+    .orderBy(asc(wordNotes.createdAt));
+
+  // AI contextual definition for this (book, lemma): job state + its senses when done.
+  const [ai] = await db
+    .select({ status: aiDefinitions.status, error: aiDefinitions.error })
+    .from(aiDefinitions)
+    .where(and(eq(aiDefinitions.bookId, book.id), eq(aiDefinitions.lemma, key)))
     .limit(1);
+  const aiDefinition = ai
+    ? {
+        status: ai.status,
+        senses: ai.status === "done" ? await getAiSenses(book.id, key) : null,
+        error: ai.error,
+      }
+    : null;
 
   return {
     word: key,
@@ -694,35 +655,56 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
     status: uw?.status ?? null,
     forms: forms.map((f) => ({ word: f.word, count: f.count, example: f.example })),
     definition, // bundled (make dict-update) or Free Dictionary API fallback (spec 03)
-    note: noteRow?.note ?? null,
+    notes,
+    aiDefinition,
+    aiDefinitionEnabled: Boolean(env.OPENROUTER_API_KEY),
   };
 }
 
-/** Add/replace the user's per-book note for a word (keyed by base form). */
-export async function setWordNote(
+/** Add one of the user's own definitions for a word in this book (several allowed). */
+export async function addWordNote(
   userId: string,
   book: Book,
   rawWord: string,
   note: string,
-): Promise<void> {
+): Promise<{ id: string; note: string }> {
   const lemma = rawWord.trim().toLowerCase();
-  await db
+  const [row] = await db
     .insert(wordNotes)
     .values({ userId, bookId: book.id, lemma, note })
-    .onConflictDoUpdate({
-      target: [wordNotes.userId, wordNotes.bookId, wordNotes.lemma],
-      set: { note, updatedAt: sql`now()` },
-    });
+    .returning({ id: wordNotes.id, note: wordNotes.note });
+  return row!;
 }
 
-export function deleteWordNote(userId: string, book: Book, rawWord: string) {
+/** Edit one definition by id (tenant-scoped). Returns false when it isn't the user's. */
+export async function updateWordNote(
+  userId: string,
+  book: Book,
+  noteId: string,
+  note: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(wordNotes)
+    .set({ note, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(wordNotes.id, noteId),
+        eq(wordNotes.userId, userId),
+        eq(wordNotes.bookId, book.id),
+      ),
+    )
+    .returning({ id: wordNotes.id });
+  return rows.length > 0;
+}
+
+export function deleteWordNote(userId: string, book: Book, noteId: string) {
   return db
     .delete(wordNotes)
     .where(
       and(
+        eq(wordNotes.id, noteId),
         eq(wordNotes.userId, userId),
         eq(wordNotes.bookId, book.id),
-        eq(wordNotes.lemma, rawWord.trim().toLowerCase()),
       ),
     );
 }
@@ -932,25 +914,16 @@ export async function buildAnkiDeck(userId: string, q: DeckQuery): Promise<DeckC
 
   if (rows.length === 0) return [];
 
-  const defs = await db
-    .select({ lemma: definitions.lemma, senses: definitions.senses })
-    .from(definitions)
-    .where(
-      and(
-        eq(definitions.language, language),
-        inArray(
-          definitions.lemma,
-          rows.map((r) => r.word),
-        ),
-      ),
-    );
-  const defMap = new Map(defs.map((d) => [d.lemma, d.senses]));
+  const defMap = await getDictionarySensesForLemmas(
+    language,
+    rows.map((r) => r.word),
+  );
 
   return rows.map((r) => ({
     word: r.word,
     level: r.level,
     example: r.example,
-    senses: normalizeSenses(defMap.get(r.word) ?? []),
+    senses: defMap.get(r.word) ?? [],
   }));
 }
 

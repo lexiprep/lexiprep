@@ -42,6 +42,9 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:5173}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
+      # OpenRouter (AI contextual definitions). Optional — empty disables the feature.
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_DEFINITION_MODEL: ${OPENROUTER_DEFINITION_MODEL:-google/gemini-3.1-flash-lite}
     working_dir: /workspace/lexiprep/apps/server
     # Deps come from the persisted volumes (populated by `make install`) — no reinstall on
     # deploy. @lexiprep/core is an npm dependency, so just start the server.

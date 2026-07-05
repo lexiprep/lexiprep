@@ -35,3 +35,6 @@ export const FEATURE_META: Record<PaidFeatureSlug, FeatureMeta> = {
 export function isPaidFeature(v: unknown): v is PaidFeatureSlug {
   return typeof v === "string" && (PAID_FEATURES as readonly string[]).includes(v);
 }
+
+/** The AI contextual-definition pipeline's slug (routes, trigger service, worker). */
+export const AI_DEFINITION_SLUG: PaidFeatureSlug = "ai-word-definition-from-context";

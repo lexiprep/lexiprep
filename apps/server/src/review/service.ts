@@ -7,15 +7,16 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { db } from "../db/client.js";
 import {
-  definitions,
   reviewLog,
   userSettings,
   userWordEvents,
   userWords,
   wordNotes,
+  wordSenses,
   type SrsState,
   type WordSense,
 } from "../db/schema.js";
+import { getDictionarySensesForLemmas } from "../dictionary/service.js";
 import { levelRange, reviewBookAgg, GRANULARITIES, type Granularity } from "../books/service.js";
 import {
   DEFAULT_CONFIG,
@@ -41,8 +42,10 @@ export interface ReviewCard {
    * the word no longer occurs in any of the user's books. */
   bookId: string | null;
   bookTitle: string | null;
-  /** The user's own note for that book (their custom meaning), or null. */
-  note: string | null;
+  /** The user's own definitions for that book (several allowed; replace the rest). */
+  notes: { id: string; note: string }[];
+  /** AI contextual senses generated for that book, or null (replace the dictionary). */
+  aiSenses: WordSense[] | null;
   /** Every surface form of the lemma (for bolding the word in the context sentence). */
   forms: string[];
   state: SrsState;
@@ -171,24 +174,6 @@ function rowToCard(row: CardRow): CardState {
 /** Fuzz seed is fixed at show-time from the card's *current* due, so preview == scheduled. */
 function seedFor(id: string, due: Date | null): string {
   return `${id}:${due ? due.getTime() : 0}`;
-}
-
-/**
- * Coerce sense examples to plain strings (mirrors `books/service.ts` — Open English
- * WordNet sometimes stores an example as an attributed-quote object, which the React modal
- * cannot render).
- */
-function normalizeSenses(senses: WordSense[]): WordSense[] {
-  return senses.map((s) => {
-    const ex = s.example as unknown;
-    const example =
-      typeof ex === "string"
-        ? ex
-        : ex && typeof ex === "object" && "text" in ex
-          ? String((ex as { text: unknown }).text)
-          : undefined;
-    return example ? { pos: s.pos, gloss: s.gloss, example } : { pos: s.pos, gloss: s.gloss };
-  });
 }
 
 /** The SRS columns + the enrichment join (level/example come from the rollup `agg`). */
@@ -326,21 +311,20 @@ export async function buildSession(
 
   // Cached definitions for the whole session in one query (no per-card network fetch).
   const lemmas = [...new Set(capped.map((r) => r.lemma))];
-  const defRows = lemmas.length
-    ? await db
-        .select({ lemma: definitions.lemma, senses: definitions.senses })
-        .from(definitions)
-        .where(and(eq(definitions.language, language), inArray(definitions.lemma, lemmas)))
-    : [];
-  const defMap = new Map(defRows.map((d) => [d.lemma, d.senses]));
+  const defMap = await getDictionarySensesForLemmas(language, lemmas);
 
-  // The user's per-book notes for the cards' representative books, in one query. Keyed by
-  // `bookId|lemma` so a card only matches the note written for *its* book.
+  // The user's per-book definitions for the cards' representative books, in one query.
+  // Keyed by `bookId|lemma` so a card only matches the notes written for *its* book.
   const noteBookIds = [...new Set(capped.map((r) => r.bookId).filter((b): b is string => !!b))];
   const noteRows =
     lemmas.length && noteBookIds.length
       ? await db
-          .select({ bookId: wordNotes.bookId, lemma: wordNotes.lemma, note: wordNotes.note })
+          .select({
+            id: wordNotes.id,
+            bookId: wordNotes.bookId,
+            lemma: wordNotes.lemma,
+            note: wordNotes.note,
+          })
           .from(wordNotes)
           .where(
             and(
@@ -349,21 +333,56 @@ export async function buildSession(
               inArray(wordNotes.lemma, lemmas),
             ),
           )
+          .orderBy(asc(wordNotes.createdAt))
       : [];
-  const noteMap = new Map(noteRows.map((n) => [`${n.bookId}|${n.lemma}`, n.note]));
+  const noteMap = new Map<string, { id: string; note: string }[]>();
+  for (const n of noteRows) {
+    const k = `${n.bookId}|${n.lemma}`;
+    const list = noteMap.get(k) ?? [];
+    list.push({ id: n.id, note: n.note });
+    noteMap.set(k, list);
+  }
+
+  // AI contextual senses for the cards' (book, lemma) pairs — same one-query pattern.
+  const aiRows =
+    lemmas.length && noteBookIds.length
+      ? await db
+          .select({
+            bookId: wordSenses.bookId,
+            lemma: wordSenses.lemma,
+            pos: wordSenses.pos,
+            gloss: wordSenses.gloss,
+          })
+          .from(wordSenses)
+          .where(
+            and(
+              eq(wordSenses.ai, true),
+              inArray(wordSenses.bookId, noteBookIds),
+              inArray(wordSenses.lemma, lemmas),
+            ),
+          )
+          .orderBy(asc(wordSenses.idx))
+      : [];
+  const aiMap = new Map<string, WordSense[]>();
+  for (const s of aiRows) {
+    const k = `${s.bookId}|${s.lemma}`;
+    const list = aiMap.get(k) ?? [];
+    list.push({ pos: s.pos, gloss: s.gloss });
+    aiMap.set(k, list);
+  }
 
   const cards: ReviewCard[] = capped.map((row) => {
     const isNew = row.srsDue === null;
-    const senses = defMap.get(row.lemma);
     return {
       lemma: row.lemma,
       word: row.lemma,
       example: row.example ?? null,
       level: row.level ?? null,
-      definition: senses ? normalizeSenses(senses) : null,
+      definition: defMap.get(row.lemma) ?? null,
       bookId: row.bookId ?? null,
       bookTitle: row.bookTitle ?? null,
-      note: row.bookId ? noteMap.get(`${row.bookId}|${row.lemma}`) ?? null : null,
+      notes: row.bookId ? noteMap.get(`${row.bookId}|${row.lemma}`) ?? [] : [],
+      aiSenses: row.bookId ? aiMap.get(`${row.bookId}|${row.lemma}`) ?? null : null,
       forms: row.forms ?? [],
       state: row.srsState as SrsState,
       isNew,
