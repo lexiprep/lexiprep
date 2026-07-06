@@ -229,6 +229,8 @@ export interface WordsQuery {
   maxLevel?: string;
   /** Multi-column sort, e.g. "level:desc,count:desc". Whitelisted fields only. */
   sort?: string;
+  /** Substring search over the base form (matches the displayed word). */
+  q?: string;
   limit?: number;
   offset?: number;
 }
@@ -298,6 +300,13 @@ function triageCondition(view: TriageView): SQL | undefined {
   return eq(userWords.status, view);
 }
 
+/** Substring match on the base form (the word shown in the list). Empty → no filter. */
+function searchCondition(q?: string): SQL | undefined {
+  const term = q?.trim().toLowerCase();
+  if (!term) return undefined;
+  return sql`${KEY} like ${"%" + term + "%"}`;
+}
+
 /**
  * The review queue / batch for a book, **grouped by base form (lemma)** so each row is
  * one word with its conjugations' counts summed (spec 02) — `echo/echoes/echoing`
@@ -310,6 +319,8 @@ export function getBookWords(userId: string, book: Book, q: WordsQuery) {
   const triage = triageCondition(triageView(q));
   if (triage) where.push(triage);
   where.push(...levelRange(bookWords.level, q.minLevel, q.maxLevel));
+  const search = searchCondition(q.q);
+  if (search) where.push(search);
 
   return db
     .select({
@@ -347,12 +358,15 @@ export async function getBookWordStats(userId: string, book: Book, q: WordsQuery
     view: TriageView;
     minLevel?: string;
     maxLevel?: string;
+    q?: string;
     includeStopwords?: boolean;
   }): Promise<number> => {
     const where = [eq(bookWords.bookId, book.id)];
     const triage = triageCondition(opts.view);
     if (triage) where.push(triage);
     where.push(...levelRange(bookWords.level, opts.minLevel, opts.maxLevel));
+    const search = searchCondition(opts.q);
+    if (search) where.push(search);
     const sub = db
       .select({ k: KEY.as("k") })
       .from(bookWords)
@@ -381,6 +395,7 @@ export async function getBookWordStats(userId: string, book: Book, q: WordsQuery
       view: triageView(q),
       minLevel: q.minLevel,
       maxLevel: q.maxLevel,
+      q: q.q,
       includeStopwords: q.includeStopwords,
     }),
     // Untriaged words with no CEFR level (names / rare words) — the "first stage" junk.
