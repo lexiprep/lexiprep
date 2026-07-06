@@ -203,6 +203,8 @@ export interface WordsParams {
   maxLevel?: string;
   /** "" = to review (untriaged); "all" | "known" | "learning" | "ignored". */
   status?: string;
+  /** Substring search over the base form (matches the displayed word). */
+  q?: string;
   includeStopwords?: boolean;
 }
 

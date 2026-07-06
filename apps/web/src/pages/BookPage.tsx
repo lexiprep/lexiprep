@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -56,6 +56,9 @@ export function BookPage() {
   const [maxLevel, setMaxLevel] = usePersistentState(k("maxLevel"), "");
   // "" = to review (untriaged, default); "all" / known / learning / ignored otherwise.
   const [view, setView] = usePersistentState(k("view"), "");
+  // Search is ephemeral (not persisted): raw input + its debounced, trimmed value.
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
   // Words triaged within the current loaded batch — hidden locally so the batch shrinks
   // as you work it, without pulling in new words (the user reviews a fixed batch).
   const [triaged, setTriaged] = useState<Set<string>>(new Set());
@@ -67,6 +70,16 @@ export function BookPage() {
     setPageIndex(0);
     setTriaged(new Set());
   }
+
+  // Debounce the search box so we don't reload the batch on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput.trim());
+      resetView();
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
 
   const bookQ = useQuery({
     queryKey: ["book", id],
@@ -83,7 +96,11 @@ export function BookPage() {
     sorting.map((s) => `${s.id}:${s.desc ? "desc" : "asc"}`).join(",") || undefined;
 
   const wordsQ = useQuery({
-    queryKey: ["words", id, { pageIndex, pageSize, sortParam, minLevel, maxLevel, view }],
+    queryKey: [
+      "words",
+      id,
+      { pageIndex, pageSize, sortParam, minLevel, maxLevel, view, search },
+    ],
     queryFn: () =>
       getBookWords(id, {
         limit: pageSize,
@@ -92,6 +109,7 @@ export function BookPage() {
         minLevel: minLevel || undefined,
         maxLevel: maxLevel || undefined,
         status: view || undefined,
+        q: search || undefined,
       }),
     enabled: ready,
     placeholderData: keepPreviousData,
@@ -367,6 +385,15 @@ export function BookPage() {
                 </select>
               </label>
 
+              <input
+                type="search"
+                className="search-input"
+                placeholder="Search words…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                aria-label="Search words"
+              />
+
               <span className="grow" />
               <span className="muted small hint">Shift-click headers to multi-sort</span>
             </div>
@@ -383,7 +410,7 @@ export function BookPage() {
                   {/* With a filter active, the across-book count that matches it. Worded as
                       "match your filter" (not "to review") so it doesn't collide with the
                       header's unfiltered "to review" total, which stays fixed while filtering. */}
-                  {levelLabel ? (
+                  {levelLabel || search ? (
                     <>
                       {" · "}
                       <strong>{stats.filtered.toLocaleString()}</strong>

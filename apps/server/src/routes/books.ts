@@ -134,6 +134,7 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       minLevel: q.minLevel || undefined,
       maxLevel: q.maxLevel || undefined,
       sort: q.sort || undefined,
+      q: q.q || undefined,
       limit: q.limit ? Number(q.limit) : 100,
       offset: q.offset ? Number(q.offset) : 0,
     };

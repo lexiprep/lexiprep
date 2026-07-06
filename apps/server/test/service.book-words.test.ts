@@ -107,6 +107,28 @@ describe("getBookWords — level filtering", () => {
   });
 });
 
+describe("getBookWords — search", () => {
+  it("keeps only base forms matching the search substring", async () => {
+    const words = (await getBookWords(userId, book, { q: "run" })).map((r) => r.word);
+    expect(words).toEqual(["run"]);
+  });
+
+  it("matches a substring anywhere in the base form", async () => {
+    const words = (await getBookWords(userId, book, { q: "uito" })).map((r) => r.word);
+    expect(words).toEqual(["suitor"]);
+  });
+
+  it("is case-insensitive", async () => {
+    const words = (await getBookWords(userId, book, { q: "RUN" })).map((r) => r.word);
+    expect(words).toEqual(["run"]);
+  });
+
+  it("a blank/whitespace search is a no-op", async () => {
+    const words = (await getBookWords(userId, book, { q: "   " })).map((r) => r.word);
+    expect(words).toEqual(expect.arrayContaining(["say", "run", "suitor", "zeus"]));
+  });
+});
+
 describe("getBookWords — sorting & pagination", () => {
   it("defaults to most-frequent first", async () => {
     const rows = await getBookWords(userId, book, {});
@@ -150,5 +172,12 @@ describe("getBookWordStats", () => {
     const stats = await getBookWordStats(userId, book, { minLevel: "A2" });
     expect(stats.remaining).toBe(3); // say is triaged
     expect(stats.filtered).toBe(2); // run + suitor (A2 and up, untriaged)
+  });
+
+  it("filtered reflects the search; total and remaining stay unfiltered", async () => {
+    const stats = await getBookWordStats(userId, book, { q: "run" });
+    expect(stats.filtered).toBe(1); // only run matches
+    expect(stats.total).toBe(4);
+    expect(stats.remaining).toBe(4);
   });
 });
