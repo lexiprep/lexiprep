@@ -22,9 +22,10 @@ import {
 import { DateRangePicker } from "./DateRangePicker";
 
 const LANG = "en";
-const LEARNING_COLOR = "#2563eb"; // blue (matches the Learning badge)
-const KNOWN_COLOR = "#16a34a"; // green (matches the Known badge)
-const LEARNED_COLOR = "#7c3aed"; // violet — words that moved learning → known (Learning page)
+// CSS variables so the series re-theme in dark mode (recharts accepts var() in stroke/fill).
+const LEARNING_COLOR = "var(--blue)"; // matches the Learning badge
+const KNOWN_COLOR = "var(--green)"; // matches the Known badge
+const LEARNED_COLOR = "var(--purple)"; // words that moved learning → known (Learning page)
 
 const GRANULARITIES: { value: Granularity; label: string }[] = [
   { value: "day", label: "Day" },
@@ -140,9 +141,26 @@ export function VocabularyStats() {
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 4, left: -8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40} />
-                <Tooltip />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: "var(--muted)" }}
+                  stroke="var(--border)"
+                  minTickGap={20}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: "var(--muted)" }}
+                  stroke="var(--border)"
+                  width={40}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                  labelStyle={{ color: "var(--text)" }}
+                />
                 <Legend
                   onClick={totalToggle.onClick}
                   formatter={totalToggle.formatter}
@@ -185,9 +203,26 @@ export function VocabularyStats() {
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 4, left: -8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40} />
-                <Tooltip />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: "var(--muted)" }}
+                  stroke="var(--border)"
+                  minTickGap={20}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: "var(--muted)" }}
+                  stroke="var(--border)"
+                  width={40}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                  labelStyle={{ color: "var(--text)" }}
+                />
                 <Legend
                   onClick={addedToggle.onClick}
                   formatter={addedToggle.formatter}

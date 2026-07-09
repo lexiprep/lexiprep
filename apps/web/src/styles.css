@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f6f7f9;
   --surface: #ffffff;
   --border: #e3e6ea;
@@ -11,8 +12,43 @@
   --amber: #b8860b;
   --red: #b4232a;
   --gray: #8a93a6;
+  --purple: #7c3aed;
+  /* Semantic surface tints — centralized so dark mode flips them in one place.
+     Light values equal the hexes they replaced (a no-op for light mode). */
+  --subtle: #eef1f5; /* raised/inset fills: tabs, default pill, chips, code */
+  --hover: #f0f2f5; /* ghost button / segment hover */
+  --th-bg: #fafbfc; /* table header, kbd */
+  --row-hover: #f7f9fb; /* table row hover, example block */
+  --row-selected: #eef5f4; /* selected table row */
+  --scrim: rgba(16, 24, 40, 0.45); /* modal backdrop */
   --radius: 10px;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 4px 16px rgba(16, 24, 40, 0.06);
+}
+
+/* Dark theme — applied via data-theme="dark" on <html> (see src/lib/theme.ts). Remaps the
+   same variable names, so every rule that uses var(--x) re-themes automatically. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1419;
+  --surface: #1a212b;
+  --border: #2b333f;
+  --text: #e6e9ee;
+  --muted: #9aa4b2;
+  --accent: #59b3aa; /* lightened teal so links/brand pop on dark */
+  --accent-ink: #0c1116; /* dark ink on the lighter accent keeps button contrast high */
+  --blue: #6ea8ff;
+  --green: #4cc38a;
+  --amber: #d9a441;
+  --red: #e5645f;
+  --gray: #97a1b0;
+  --purple: #a78bfa;
+  --subtle: #232b36;
+  --hover: #262f3b;
+  --th-bg: #1e252f;
+  --row-hover: #212a34;
+  --row-selected: color-mix(in srgb, var(--accent) 20%, var(--surface));
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -214,13 +250,28 @@ h4 {
 .menu-signout {
   color: var(--red);
 }
+/* Theme picker in the menu footer — the segmented control spans the footer, equal thirds. */
+.menu-theme {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 4px;
+}
+.menu-theme .seg-group {
+  width: 100%;
+}
+.menu-theme .seg {
+  flex: 1;
+  text-align: center;
+}
 
 /* Status tabs (learning / known / ignored) on the vocabulary page */
 .tabs {
   display: inline-flex;
   gap: 4px;
   margin-bottom: 14px;
-  background: #eef1f5;
+  background: var(--subtle);
   padding: 4px;
   border-radius: 10px;
 }
@@ -282,7 +333,7 @@ h4 {
   transition: background 0.12s, border-color 0.12s, opacity 0.12s;
 }
 .btn:hover {
-  background: #f0f2f5;
+  background: var(--hover);
 }
 .btn:disabled {
   opacity: 0.5;
@@ -293,8 +344,10 @@ h4 {
   border-color: var(--accent);
   color: var(--accent-ink);
 }
+/* Solid buttons darken slightly on hover — works in both themes without a hardcoded shade. */
 .btn.primary:hover {
-  background: #265a56;
+  background: var(--accent);
+  filter: brightness(0.92);
 }
 .btn.ghost {
   background: transparent;
@@ -473,7 +526,7 @@ select:focus {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 600;
-  background: #eef1f5;
+  background: var(--subtle);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -494,8 +547,22 @@ select:focus {
   color: var(--blue);
 }
 .pill.gray {
-  background: #eef1f5;
+  background: var(--subtle);
   color: var(--gray);
+}
+/* Dark mode: the light pastel pill tints above wash out on a dark surface — derive a
+   readable tint from the status colour mixed into the surface instead. */
+[data-theme="dark"] .pill.green {
+  background: color-mix(in srgb, var(--green) 22%, var(--surface));
+}
+[data-theme="dark"] .pill.amber {
+  background: color-mix(in srgb, var(--amber) 22%, var(--surface));
+}
+[data-theme="dark"] .pill.red {
+  background: color-mix(in srgb, var(--red) 22%, var(--surface));
+}
+[data-theme="dark"] .pill.blue {
+  background: color-mix(in srgb, var(--blue) 22%, var(--surface));
 }
 .level-badge {
   display: inline-block;
@@ -511,7 +578,7 @@ select:focus {
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--muted);
-  background: #eef1f5;
+  background: var(--subtle);
   border-radius: 6px;
   padding: 1px 7px;
 }
@@ -557,7 +624,7 @@ table.words td {
   border-bottom: 1px solid var(--border);
 }
 table.words th {
-  background: #fafbfc;
+  background: var(--th-bg);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -577,10 +644,10 @@ table.words td.right {
   text-align: right;
 }
 table.words tbody tr:hover {
-  background: #f7f9fb;
+  background: var(--row-hover);
 }
 table.words tbody tr.selected {
-  background: #eef5f4;
+  background: var(--row-selected);
 }
 table.words tbody tr:last-child td {
   border-bottom: none;
@@ -618,7 +685,7 @@ table.words tbody tr:last-child td {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(16, 24, 40, 0.45);
+  background: var(--scrim);
   display: grid;
   place-items: center;
   padding: 20px;
@@ -668,7 +735,7 @@ table.words tbody tr:last-child td {
 .example {
   font-style: italic;
   color: var(--text);
-  background: #f7f9fb;
+  background: var(--row-hover);
   border-left: 3px solid var(--accent);
   padding: 10px 14px;
   border-radius: 0 8px 8px 0;
@@ -941,7 +1008,7 @@ table.words td.center {
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85em;
-  background: #eef1f5;
+  background: var(--subtle);
   padding: 1px 5px;
   border-radius: 5px;
 }
@@ -1001,6 +1068,16 @@ code {
   border-color: var(--gray);
   color: #fff;
 }
+/* Dark mode: status colours are lightened for text/border legibility on dark, so white text
+   on the *filled* variants (active status buttons, danger, grade buttons) would be too low
+   in contrast — use dark ink on those fills instead. */
+[data-theme="dark"] .btn.blue.active,
+[data-theme="dark"] .btn.green.active,
+[data-theme="dark"] .btn.gray.active,
+[data-theme="dark"] .btn.danger,
+[data-theme="dark"] .grade-btn {
+  color: #0c1116;
+}
 .action-hint {
   margin: 8px 0 0;
 }
@@ -1012,7 +1089,8 @@ code {
   color: #fff;
 }
 .btn.danger:hover {
-  background: #9a1d23;
+  background: var(--red);
+  filter: brightness(0.92);
 }
 .modal.confirm {
   padding: 22px;
@@ -1096,7 +1174,7 @@ code {
   padding: 10px 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
   --rdp-accent-color: var(--accent);
-  --rdp-accent-background-color: color-mix(in srgb, var(--accent) 15%, #fff);
+  --rdp-accent-background-color: color-mix(in srgb, var(--accent) 15%, var(--surface));
 }
 
 /* Segmented control (granularity day/week/month) */
@@ -1120,7 +1198,7 @@ code {
   border-left: none;
 }
 .seg:hover {
-  background: #f0f2f5;
+  background: var(--hover);
 }
 .seg.active {
   background: var(--accent);
@@ -1431,7 +1509,7 @@ kbd {
   border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: 5px;
-  background: #fafbfc;
+  background: var(--th-bg);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85em;
 }

@@ -195,9 +195,26 @@ export function ReviewStats() {
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={rows} margin={{ top: 8, right: 16, bottom: 4, left: -8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={20} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={40} />
-                <Tooltip />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: "var(--muted)" }}
+                  stroke="var(--border)"
+                  minTickGap={20}
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: "var(--muted)" }}
+                  stroke="var(--border)"
+                  width={40}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                  }}
+                  labelStyle={{ color: "var(--text)" }}
+                />
                 <Legend
                   onClick={gradeToggle.onClick}
                   formatter={gradeToggle.formatter}
