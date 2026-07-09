@@ -2,8 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useSession, signOut } from "../lib/auth";
 import { useBodyScrollLock } from "../lib/useBodyScrollLock";
+import { useTheme, type ThemeChoice } from "../lib/theme";
 
 const navClass = ({ isActive }: { isActive: boolean }) => (isActive ? "active" : "");
+
+const THEME_OPTIONS: { value: ThemeChoice; label: string }[] = [
+  { value: "system", label: "Auto" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 /** Primary navigation — add new top-level pages here and they appear in both the desktop
  * bar and the mobile menu. */
@@ -84,6 +91,7 @@ function NavMenu({
   onSignOut: () => void;
 }) {
   useBodyScrollLock();
+  const { choice, setChoice } = useTheme();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -111,6 +119,21 @@ function NavMenu({
           ))}
         </nav>
         <div className="menu-overlay-foot">
+          <div className="menu-theme">
+            <span className="setting-label">Theme</span>
+            <div className="seg-group" role="group" aria-label="Theme">
+              {THEME_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  className={`seg${choice === o.value ? " active" : ""}`}
+                  aria-pressed={choice === o.value}
+                  onClick={() => setChoice(o.value)}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
           {email && <span className="muted small">{email}</span>}
           <button className="btn ghost menu-signout" onClick={onSignOut}>
             Sign out

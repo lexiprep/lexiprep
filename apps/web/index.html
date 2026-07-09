@@ -4,8 +4,24 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="theme-color" content="#2f6f6a" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#2f6f6a" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f1419" />
     <title>lexiprep</title>
+    <script>
+      // Set the theme before first paint to avoid a light flash. Reads the raw string the
+      // theme module writes to localStorage; mirrors resolveTheme() in src/lib/theme.ts.
+      (function () {
+        try {
+          var t = localStorage.getItem("lexiprep.theme");
+          var dark =
+            t === "dark" ||
+            (t !== "light" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.setAttribute("data-theme", "dark");
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

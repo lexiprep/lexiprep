@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
+import { useTheme } from "./lib/theme";
 import { Protected } from "./components/Protected";
 import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
@@ -11,9 +12,10 @@ import { ReviewPage } from "./pages/ReviewPage";
 import { StatsPage } from "./pages/StatsPage";
 
 export function App() {
+  const { resolved } = useTheme();
   return (
     <>
-      <Toaster position="bottom-right" richColors closeButton />
+      <Toaster position="bottom-right" richColors closeButton theme={resolved} />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
