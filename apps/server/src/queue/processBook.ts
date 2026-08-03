@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import JSZip from "jszip";
 import { readEpub, readPdf, analyzeBook, ENGLISH_STOPWORDS } from "@lexiprep/core";
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "../db/client.js";
@@ -27,6 +28,45 @@ export function isPdf(data: Uint8Array): boolean {
     data[3] === 0x46 &&
     data[4] === 0x2d
   );
+}
+
+/**
+ * Algorithms that appear in `META-INF/encryption.xml` on perfectly readable EPUBs:
+ * embedded-font obfuscation (IDPF's and Adobe's). The presence of encryption.xml is
+ * therefore NOT by itself a DRM signal — only a content-encryption algorithm is.
+ */
+const FONT_OBFUSCATION = new Set([
+  "http://www.idpf.org/2008/embedding",
+  "http://ns.adobe.com/pdf/enc#RC",
+]);
+
+/**
+ * Name the DRM scheme locking an EPUB's text, or null if its content is readable.
+ *
+ * Without this, a protected book still "parses": the zip inflates, but every XHTML file
+ * is ciphertext, so extraction yields thousands of junk tokens that look like a word list.
+ * Detect it up front and fail with something the owner can act on.
+ *
+ * Detection is by content-encryption algorithm (font obfuscation is ignored, see
+ * {@link FONT_OBFUSCATION}); the scheme name comes from the sidecar file each system
+ * ships — `license.lcpl` for Readium LCP, `rights.xml` for Adobe ADEPT.
+ */
+export async function epubDrmScheme(data: Uint8Array): Promise<string | null> {
+  let zip: JSZip;
+  try {
+    zip = await JSZip.loadAsync(data);
+  } catch {
+    return null; // not a readable zip — let readEpub produce the real error
+  }
+  const xml = await zip.file("META-INF/encryption.xml")?.async("string");
+  if (!xml) return null;
+
+  const algorithms = [...xml.matchAll(/Algorithm="([^"]+)"/g)].map((m) => m[1]!);
+  if (!algorithms.some((a) => !FONT_OBFUSCATION.has(a))) return null;
+
+  if (zip.file("META-INF/license.lcpl")) return "Readium LCP";
+  if (zip.file("META-INF/rights.xml")) return "Adobe DRM";
+  return "DRM";
 }
 
 /**
@@ -59,7 +99,17 @@ export async function processBook(
     .where(eq(books.id, bookId));
 
   try {
-    const parsed = isPdf(file.data) ? await readPdf(file.data) : await readEpub(file.data);
+    const pdf = isPdf(file.data);
+    // Bail before extraction: a DRM'd EPUB parses fine but yields ciphertext "words".
+    if (!pdf) {
+      const drm = await epubDrmScheme(file.data);
+      if (drm) {
+        throw new Error(
+          `This EPUB is protected by ${drm}, so its text can't be read. Upload a DRM-free copy.`,
+        );
+      }
+    }
+    const parsed = pdf ? await readPdf(file.data) : await readEpub(file.data);
     // lemmatize: group conjugations under a base form (used for level lookup + grouping)
     // detectProperNouns: flag names from mid-sentence capitalization (spec 06)
     // captureExamples: first-occurrence context sentence per word (spec 03) — every word

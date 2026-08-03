@@ -103,6 +103,43 @@ describe("POST /api/books/:id/reprocess", () => {
   });
 });
 
+describe("DELETE /api/books/:id", () => {
+  it("deletes an owned book in any status and drops it from the list", async () => {
+    const book = await createBook(alice.userId, { status: "uploaded" });
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/books/${book.id}`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(res.statusCode).toBe(204);
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/books",
+      headers: { cookie: alice.cookie },
+    });
+    expect((list.json() as { books: unknown[] }).books).toHaveLength(0);
+  });
+
+  it("404s another user's book and leaves it intact (tenant isolation)", async () => {
+    const book = await createBook(alice.userId);
+    const bob = await signUp("bob@example.com");
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/books/${book.id}`,
+      headers: { cookie: bob.cookie },
+    });
+    expect(res.statusCode).toBe(404);
+
+    const still = await app.inject({
+      method: "GET",
+      url: `/api/books/${book.id}`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(still.statusCode).toBe(200);
+  });
+});
+
 describe("GET /api/books/:id/words", () => {
   it("returns grouped words with stats", async () => {
     const book = await createBook(alice.userId);

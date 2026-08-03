@@ -15,6 +15,7 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   addWordNote,
   createBook,
+  deleteBook,
   deleteWordNote,
   finishBookReview,
   getBook,
@@ -117,6 +118,18 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       return { error: "Not found" };
     }
     return { book };
+  });
+
+  // Remove a book for good. Allowed in any status, so a book stuck queued/processing
+  // (e.g. the worker never picked its job up) can still be cleared out.
+  app.delete("/books/:id", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    if (!(await deleteBook(request.user!.id, id))) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    reply.code(204);
+    return null;
   });
 
   app.get("/books/:id/words", async (request, reply) => {
