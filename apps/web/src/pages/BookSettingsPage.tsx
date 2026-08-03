@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getBook, reprocessBook, updateBook } from "../lib/api";
+import { deleteBook, getBook, reprocessBook, updateBook } from "../lib/api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export function BookSettingsPage() {
   const { id = "" } = useParams();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState<"reprocess" | "delete" | null>(null);
 
   // Shares the ["book", id] cache with BookPage.
   const bookQ = useQuery({ queryKey: ["book", id], queryFn: () => getBook(id) });
@@ -47,6 +47,15 @@ export function BookSettingsPage() {
       qc.invalidateQueries({ queryKey: ["books"] });
       // The book page polls processing status and shows "Analyzing…".
       navigate(`/books/${id}`);
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteBook(id),
+    onSuccess: () => {
+      qc.removeQueries({ queryKey: ["book", id] });
+      qc.invalidateQueries({ queryKey: ["books"] });
+      navigate("/", { replace: true });
     },
   });
 
@@ -154,7 +163,7 @@ export function BookSettingsPage() {
             <button
               className="btn primary"
               disabled={reprocess.isPending || inFlight}
-              onClick={() => setConfirm(true)}
+              onClick={() => setConfirm("reprocess")}
             >
               {inFlight ? "Processing…" : "Reprocess book"}
             </button>
@@ -166,17 +175,50 @@ export function BookSettingsPage() {
               </p>
             )}
           </div>
+
+          <div className="card settings-card">
+            <h3>Delete</h3>
+            <p className="muted">
+              Remove this book, its file and its extracted word list for good. Your
+              vocabulary (known / learning words) is kept — it’s shared across books.
+              Available even while a book is still queued or processing.
+            </p>
+            <button
+              className="btn danger"
+              disabled={remove.isPending}
+              onClick={() => setConfirm("delete")}
+            >
+              {remove.isPending ? "Deleting…" : "Delete book"}
+            </button>
+            {remove.isError && (
+              <p className="error small">
+                {remove.error instanceof Error ? remove.error.message : "Delete failed"}
+              </p>
+            )}
+          </div>
         </>
       )}
 
-      {confirm && (
+      {confirm === "reprocess" && (
         <ConfirmDialog
           title="Reprocess this book?"
           message="The word list is rebuilt with the latest engine. Your reviewed words and notes are preserved."
           confirmLabel="Reprocess"
           busy={reprocess.isPending}
           onConfirm={() => reprocess.mutate()}
-          onCancel={() => setConfirm(false)}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {confirm === "delete" && (
+        <ConfirmDialog
+          title="Delete this book?"
+          message="The book, its file and its word list are removed permanently. This can’t be undone."
+          confirmLabel="Delete"
+          danger
+          busy={remove.isPending}
+          onConfirm={() => remove.mutate()}
+          onCancel={() => setConfirm(null)}
         />
       )}
     </section>

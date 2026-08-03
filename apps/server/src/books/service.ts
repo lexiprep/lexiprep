@@ -93,6 +93,23 @@ export async function reprocessBook(
   return updated ?? null;
 }
 
+/**
+ * Permanently delete a book and everything keyed to it — the stored file, the extracted
+ * word list, per-book notes and AI senses (all FKs are `on delete cascade`). The user's
+ * vocabulary (`user_words`) is cross-book and is deliberately kept. Works in any status,
+ * including a book stuck at `uploaded`/`processing` (a queued job for it finds no file and
+ * exits). Scoped by `userId` and returns false for a book the user doesn't own, so the
+ * route 404s without leaking existence.
+ */
+export async function deleteBook(userId: string, bookId: string): Promise<boolean> {
+  if (!UUID_RE.test(bookId)) return false;
+  const deleted = await db
+    .delete(books)
+    .where(and(eq(books.id, bookId), eq(books.userId, userId)))
+    .returning({ id: books.id });
+  return deleted.length > 0;
+}
+
 /** Editable bibliographic fields. `author`/`translator` may be cleared (empty -> null). */
 export interface BookDetails {
   title?: string;

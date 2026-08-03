@@ -182,6 +182,13 @@ export const reprocessBook = (id: string) =>
     (r) => r.book,
   );
 
+/**
+ * Permanently delete a book, its stored file and its extracted words. Works in any status
+ * (including one stuck queued). Your vocabulary (known / learning) is cross-book and kept.
+ */
+export const deleteBook = (id: string) =>
+  request<void>(`/api/books/${id}`, { method: "DELETE" });
+
 /** Editable book details. Omit a field to leave it unchanged; "" clears author/translator. */
 export interface BookDetailsInput {
   title?: string;
