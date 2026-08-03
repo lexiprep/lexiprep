@@ -4,7 +4,7 @@ import type { FastifyBaseLogger } from "fastify";
 import { db, schema } from "../src/db/client.js";
 import { processBook } from "../src/queue/processBook.js";
 import { addBookFile, addWordLevel, createBook, createUser } from "./helpers/db.js";
-import { makeEpub } from "./helpers/epub.js";
+import { encryptionXml, makeEpub } from "./helpers/epub.js";
 import { makePdf } from "./helpers/pdf.js";
 
 const { books, bookWords, userWords } = schema;
@@ -104,6 +104,42 @@ describe("processBook", () => {
     const [updated] = await db.select().from(books).where(eq(books.id, book.id));
     expect(updated!.status).toBe("failed");
     expect(updated!.error).toBeTruthy();
+  });
+
+  it("fails a DRM-protected EPUB by name instead of storing ciphertext words", async () => {
+    const book = await createBook(userId, { status: "uploaded" });
+    // Readium LCP (as ebooks.com issues): AES-256-CBC over the content + an .lcpl sidecar.
+    const epub = await makeEpub("<p>The fox ran.</p>", "Locked Book", {
+      "META-INF/encryption.xml": encryptionXml("http://www.w3.org/2001/04/xmlenc#aes256-cbc"),
+      "META-INF/license.lcpl": '{"id":"x","encryption":{"profile":"http://readium.org/lcp/profile-2.9"}}',
+    });
+    await addBookFile(book.id, epub);
+
+    await processBook(book.id, logger);
+
+    const [updated] = await db.select().from(books).where(eq(books.id, book.id));
+    expect(updated!.status).toBe("failed");
+    expect(updated!.error).toContain("Readium LCP");
+    // The junk never reaches the word list.
+    expect(await db.select().from(bookWords).where(eq(bookWords.bookId, book.id))).toHaveLength(0);
+  });
+
+  it("still processes an EPUB whose encryption.xml is only font obfuscation", async () => {
+    const book = await createBook(userId, { status: "uploaded" });
+    // Obfuscated embedded fonts are common in DRM-free EPUBs — not a lock on the text.
+    const epub = await makeEpub("<p>The fox ran.</p>", "Fine Book", {
+      "META-INF/encryption.xml": encryptionXml(
+        "http://www.idpf.org/2008/embedding",
+        "OEBPS/fonts/x.otf",
+      ),
+    });
+    await addBookFile(book.id, epub);
+
+    await processBook(book.id, logger);
+
+    const [updated] = await db.select().from(books).where(eq(books.id, book.id));
+    expect(updated!.status).toBe("ready");
+    expect((await wordRow(book.id, "fox"))?.count).toBe(1);
   });
 
   it("marks the book failed (not stuck on processing) when no file is stored", async () => {

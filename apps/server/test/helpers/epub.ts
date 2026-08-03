@@ -1,7 +1,15 @@
 import JSZip from "jszip";
 
-/** Build a minimal valid single-chapter EPUB in memory (Buffer) for processBook tests. */
-export async function makeEpub(body: string, title = "Test Book"): Promise<Buffer> {
+/**
+ * Build a minimal valid single-chapter EPUB in memory (Buffer) for processBook tests.
+ * `extraFiles` (path -> contents) is merged in, for cases like a `META-INF/encryption.xml`
+ * sidecar.
+ */
+export async function makeEpub(
+  body: string,
+  title = "Test Book",
+  extraFiles: Record<string, string> = {},
+): Promise<Buffer> {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip");
   zip.file(
@@ -44,5 +52,17 @@ export async function makeEpub(body: string, title = "Test Book"): Promise<Buffe
   <spine toc="ncx"><itemref idref="ch0"/></spine>
 </package>`,
   );
+  for (const [path, contents] of Object.entries(extraFiles)) zip.file(path, contents);
   return zip.generateAsync({ type: "nodebuffer" });
+}
+
+/** An `encryption.xml` declaring `algorithm` over one resource. */
+export function encryptionXml(algorithm: string, uri = "OEBPS/ch1.xhtml"): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <EncryptedData xmlns="http://www.w3.org/2001/04/xmlenc#">
+    <EncryptionMethod Algorithm="${algorithm}"/>
+    <CipherData><CipherReference URI="${uri}"/></CipherData>
+  </EncryptedData>
+</encryption>`;
 }
