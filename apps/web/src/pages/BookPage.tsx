@@ -29,6 +29,7 @@ import { LevelBadge, StatusBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { CardMode } from "../components/CardMode";
 
 const PAGE_SIZES = [10, 20, 50, 100];
 
@@ -65,6 +66,7 @@ export function BookPage() {
   const [openWord, setOpenWord] = useState<BookWordRow | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
   const [confirmComplete, setConfirmComplete] = useState(false);
+  const [cardMode, setCardMode] = useState(false);
 
   function resetView() {
     setPageIndex(0);
@@ -140,11 +142,7 @@ export function BookPage() {
     },
     onError: (err, v) => {
       // The row was hidden optimistically — bring it back so the table reflects reality.
-      setTriaged((prev) => {
-        const next = new Set(prev);
-        next.delete(v.word);
-        return next;
-      });
+      unhideFromBatch(v.word);
       toast.error(
         err instanceof Error && err.message
           ? err.message
@@ -158,6 +156,14 @@ export function BookPage() {
   // markWord) and the word modal (via its onStatusChange), now and in future.
   const hideFromBatch = (word: string) =>
     setTriaged((prev) => new Set(prev).add(word));
+  // The inverse: put a word back into the batch. Used when a mark fails, and when card
+  // mode undoes one — both cases mean the word's status is (again) what it was.
+  const unhideFromBatch = (word: string) =>
+    setTriaged((prev) => {
+      const next = new Set(prev);
+      next.delete(word);
+      return next;
+    });
   // Mark a word from a per-row button and drop it from the current batch (the modal instead
   // runs its own mutation and calls hideFromBatch on success).
   const markWord = (word: string, status: UserWordStatus) => {
@@ -422,6 +428,18 @@ export function BookPage() {
                 </p>
               )}
 
+              {/* Filters are set above; this turns whatever they left into a swipe deck. */}
+              {visibleRows.length > 0 && (
+                <div className="cards-cta">
+                  <button className="btn primary" onClick={() => setCardMode(true)}>
+                    Card mode →
+                  </button>
+                  <span className="muted small">
+                    Review these one card at a time — swipe or tap.
+                  </span>
+                </div>
+              )}
+
               <div className="table-wrap">
                 <table className="words">
                   <thead>
@@ -575,6 +593,18 @@ export function BookPage() {
           busy={completeBatch.isPending}
           onConfirm={() => completeBatch.mutate()}
           onCancel={() => setConfirmComplete(false)}
+        />
+      )}
+
+      {cardMode && book && (
+        <CardMode
+          bookId={id}
+          language={book.language}
+          rows={visibleRows}
+          // Same triage path as the per-row buttons: mark, and drop from the frozen batch.
+          onDecide={markWord}
+          onRestore={unhideFromBatch}
+          onClose={() => setCardMode(false)}
         />
       )}
 

@@ -1627,3 +1627,287 @@ kbd {
     display: none;
   }
 }
+
+/* ── Card mode (book vocabulary swipe deck) ───────────────────────────────────
+   A full-screen takeover, not a modal: fixed top/bottom bars with a single
+   scrolling card between them. See components/CardMode.tsx for why it doesn't
+   use <ModalOverlay>. */
+
+/* Entry point above the words table. */
+.cards-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.cm-root {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}
+
+/* Bars are `flex: none` so the stage between them absorbs every spare pixel. The inline
+   padding keeps their contents aligned to the card's column on wide screens while the
+   background still spans edge to edge. */
+.cm-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px max(14px, calc((100% - 592px) / 2));
+  background: var(--surface);
+}
+.cm-top {
+  border-bottom: 1px solid var(--border);
+}
+.cm-bottom {
+  border-top: 1px solid var(--border);
+  gap: 8px;
+  /* Clear the home indicator on notched phones. */
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+}
+.cm-bottom .btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 11px 6px;
+}
+.cm-key {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.cm-icon {
+  font: inherit;
+  font-size: 24px;
+  line-height: 1;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 6px;
+}
+.cm-icon:hover {
+  color: var(--text);
+}
+.cm-progress {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.cm-progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--subtle);
+  overflow: hidden;
+}
+.cm-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.cm-undo {
+  white-space: nowrap;
+}
+
+.cm-stage {
+  flex: 1;
+  min-height: 0; /* lets the card scroll instead of stretching the flex parent */
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+}
+/* The card frame: it moves, and it clips. The content scrolls inside it. */
+.cm-card {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-width: 560px;
+  align-self: stretch;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transition: transform 0.24s ease, opacity 0.24s ease;
+}
+/* The scroll and swipe surface. `pan-y` hands vertical panning to the browser and leaves
+   the horizontal axis to our pointer handler, so scrolling and swiping never fight. */
+.cm-card-scroll {
+  flex: 1;
+  min-width: 0;
+  padding: 22px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  user-select: none;
+  cursor: grab;
+}
+.cm-card-scroll:active {
+  cursor: grabbing;
+}
+
+/* Drag stamps — the verdict the current pull would commit to. Vertically centred so they
+   never collide with the word or the definition, and opaque so whatever is behind them
+   doesn't show through. */
+.cm-stamp {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  padding: 6px 12px;
+  border: 2px solid;
+  border-radius: 8px;
+  background: var(--surface);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+/* Each stamp sits on the edge the card is moving AWAY from, so it stays on screen while
+   the card slides out — put "Learning" on the left and a left-swipe carries it off-screen
+   exactly when the user needs to read it. */
+.cm-stamp.learning {
+  right: 16px;
+  color: var(--blue);
+  border-color: var(--blue);
+  transform: translateY(-50%) rotate(8deg);
+}
+.cm-stamp.known {
+  left: 16px;
+  color: var(--green);
+  border-color: var(--green);
+  transform: translateY(-50%) rotate(-8deg);
+}
+
+.cm-word {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cm-word h2 {
+  font-size: 30px;
+}
+.cm-example {
+  margin: 16px 0 0;
+  font-size: 16px;
+}
+.cm-reveal-btn {
+  width: 100%;
+  margin-top: 20px;
+}
+/* Interactive zone: the pointer handler refuses to start a swipe inside it, so the note
+   editor and AI buttons stay usable mid-deck. */
+.cm-reveal {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  user-select: text;
+  cursor: auto;
+}
+
+/* Intro and summary share one centred sheet. */
+.cm-sheet {
+  margin: auto;
+  width: 100%;
+  max-width: 420px;
+  padding: 24px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cm-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.cm-setting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cm-setting-label {
+  font-weight: 550;
+}
+.cm-counts {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.cm-count {
+  font: inherit;
+  font-weight: 550;
+  padding: 11px 4px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.cm-count:hover {
+  background: var(--hover);
+}
+/* "All (N)" is wider than a fifth of the row, so it takes a line of its own. */
+.cm-count.all {
+  grid-column: 1 / -1;
+}
+.cm-count.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.cm-sheet-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cm-tally {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Motion is decoration here — every state is reachable without it. */
+@media (prefers-reduced-motion: reduce) {
+  .cm-card,
+  .cm-progress-fill {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .cards-cta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    text-align: center;
+  }
+  .cards-cta .btn {
+    padding: 12px 14px;
+  }
+  /* No keyboard to hint at. */
+  .cm-key {
+    display: none;
+  }
+  .cm-stage {
+    padding: 10px;
+  }
+  .cm-card {
+    padding: 18px 15px;
+  }
+  .cm-word h2 {
+    font-size: 26px;
+  }
+}
