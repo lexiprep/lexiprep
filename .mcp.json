@@ -8,6 +8,14 @@
         "--connection-string",
         "postgresql://${POSTGRES_USER:-lexiprep}:${POSTGRES_PASSWORD:-lexiprep}@localhost:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-lexiprep}"
       ]
+    },
+    "cloudflare": {
+      "type": "http",
+      "url": "https://mcp.cloudflare.com/mcp"
+    },
+    "cloudflare-docs": {
+      "type": "http",
+      "url": "https://docs.mcp.cloudflare.com/mcp"
     }
   }
 }
