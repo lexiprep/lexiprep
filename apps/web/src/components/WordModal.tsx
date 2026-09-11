@@ -150,7 +150,7 @@ export function WordModal({
   );
 
   return (
-    <ModalOverlay onClose={onClose}>
+    <ModalOverlay onClose={onClose} className="word-modal" closeOnBackdrop={false}>
       <button className="modal-close" onClick={onClose} aria-label="Close">
         ×
       </button>

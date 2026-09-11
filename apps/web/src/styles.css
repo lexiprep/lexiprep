@@ -717,7 +717,7 @@ table.words tbody tr:last-child td {
   right: 14px;
   border: none;
   background: none;
-  font-size: 24px;
+  font-size: 28px;
   line-height: 1;
   color: var(--muted);
   cursor: pointer;
@@ -965,6 +965,18 @@ table.words td.center {
   }
   .book-grid {
     grid-template-columns: 1fr;
+  }
+  /* Word modal takes the whole viewport on phones — no card chrome, no inset. */
+  .modal-overlay:has(.word-modal) {
+    padding: 0;
+    place-items: stretch;
+  }
+  .modal.word-modal {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
   }
 }
 

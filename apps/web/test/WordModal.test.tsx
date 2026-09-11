@@ -40,24 +40,28 @@ function renderModal(
   initial?: WordModalInitial,
   onStatusChange?: (word: string, status: api.UserWordStatus | null) => void,
   bookScoped?: boolean,
+  onClose = vi.fn(),
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={qc}>{children}</QueryClientProvider>
   );
-  return render(
-    <WordModal
-      bookId="book-1"
-      word="ocean"
-      language="en"
-      source="book"
-      bookScoped={bookScoped}
-      initial={initial}
-      onStatusChange={onStatusChange}
-      onClose={vi.fn()}
-    />,
-    { wrapper },
-  );
+  return {
+    onClose,
+    ...render(
+      <WordModal
+        bookId="book-1"
+        word="ocean"
+        language="en"
+        source="book"
+        bookScoped={bookScoped}
+        initial={initial}
+        onStatusChange={onStatusChange}
+        onClose={onClose}
+      />,
+      { wrapper },
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -226,6 +230,18 @@ describe("WordModal", () => {
     await waitFor(() =>
       expect(api.addWordNote).toHaveBeenCalledWith("book-1", "ocean", "god of the sea here"),
     );
+  });
+
+  it("closes via the X button, not by clicking the overlay", () => {
+    vi.mocked(api.getWordDetail).mockReturnValue(new Promise<WordDetail>(() => {}));
+    const { onClose, container } = renderModal();
+
+    fireEvent.click(container.querySelector(".modal-overlay")!);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(container.querySelector(".modal")!);
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("offers the AI button only while the user has no definition of their own", async () => {
