@@ -32,7 +32,8 @@ Cursor CLI is the primary agent for this repository; Claude Code reads the same 
 ## Conventions
 
 - TypeScript, ESM, `NodeNext` (server) / `Bundler` (web), strict. pnpm workspace (`apps/*`).
-- Default branch `develop`.
+- Default branch `master` — day-to-day work and production both run off it, and pushing
+  to it deploys (see **Deploying**). `develop` is stale (last touched 2026-08-03) and unused.
 - **Never commit ebooks** — `*.epub` is gitignored; test books are local-only and often
   copyrighted.
 - **Modals must use `<ModalOverlay>`** (`apps/web/src/components/ModalOverlay.tsx`) — never
