@@ -18,6 +18,7 @@ import { levelRangeLabel } from "../lib/levels";
 import { usePersistentState } from "../lib/usePersistentState";
 import { LevelBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
+import { CountRange } from "../components/CountRange";
 import { WordModal } from "../components/WordModal";
 import { ExportModal } from "../components/ExportModal";
 
@@ -32,14 +33,16 @@ const SORT_OPTIONS = [
   { value: "level:desc", label: "Level ↓" },
   { value: "count:desc", label: "Most frequent" },
   { value: "count:asc", label: "Least frequent" },
+  { value: "books:desc", label: "In most books" },
 ];
 
 // Click a column header to sort: first click uses this direction, clicking again flips it.
-type SortField = "word" | "level" | "count";
+type SortField = "word" | "level" | "count" | "books";
 const SORT_FIRST_DIR: Record<SortField, "asc" | "desc"> = {
   word: "asc",
   level: "asc",
   count: "desc",
+  books: "desc",
 };
 
 const STATUS_TABS: { value: UserWordStatus; label: string }[] = [
@@ -57,6 +60,14 @@ const STATUS_META: Record<UserWordStatus, { label: string; cls: string }> = {
 };
 const ALL_STATUSES: UserWordStatus[] = ["learning", "known", "ignored"];
 
+/** Tooltip for a row: occurrences in view, the library-wide total when it differs, level. */
+function rowTitle(w: ReviewWord): string {
+  const level = w.level ?? "no level";
+  return w.totalCount === w.count
+    ? `${w.count}× in ${w.bookCount} book${w.bookCount === 1 ? "" : "s"} · ${level}`
+    : `${w.count}× here · ${w.totalCount}× across ${w.bookCount} books · ${level}`;
+}
+
 /**
  * The cross-book vocabulary list: words the user has triaged as learning / known / ignored
  * (switchable via tabs). Filter by book and CEFR range, search, sort, move a word to a
@@ -73,6 +84,8 @@ export function LearningPage() {
   const [bookId, setBookId] = usePersistentState(vk("bookId"), "");
   const [minLevel, setMinLevel] = usePersistentState(vk("minLevel"), "");
   const [maxLevel, setMaxLevel] = usePersistentState(vk("maxLevel"), "");
+  const [minCount, setMinCount] = usePersistentState(vk("minCount"), "");
+  const [maxCount, setMaxCount] = usePersistentState(vk("maxCount"), "");
   const [sort, setSort] = usePersistentState(vk("sort"), "count:desc");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -104,7 +117,18 @@ export function LearningPage() {
   const wordsQ = useQuery({
     queryKey: [
       "review",
-      { status, pageIndex, pageSize, bookId, minLevel, maxLevel, sort, search },
+      {
+        status,
+        pageIndex,
+        pageSize,
+        bookId,
+        minLevel,
+        maxLevel,
+        minCount,
+        maxCount,
+        sort,
+        search,
+      },
     ],
     queryFn: () =>
       getReviewWords({
@@ -114,6 +138,8 @@ export function LearningPage() {
         bookId: bookId || undefined,
         minLevel: minLevel || undefined,
         maxLevel: maxLevel || undefined,
+        minCount: minCount === "" ? undefined : Number(minCount),
+        maxCount: maxCount === "" ? undefined : Number(maxCount),
         sort,
         q: search || undefined,
       }),
@@ -129,9 +155,11 @@ export function LearningPage() {
     });
     resetView();
   }
+  // `col-<field>` is what the phone layout keys off (see styles.css) — every cell in
+  // this table carries it, header and body alike.
   const sortableTh = (field: SortField, label: string, right = false) => (
     <th
-      className={`sortable${right ? " right" : ""}`}
+      className={`col-${field} sortable${right ? " right" : ""}`}
       aria-sort={
         sortField === field ? (sortDir === "asc" ? "ascending" : "descending") : "none"
       }
@@ -152,7 +180,7 @@ export function LearningPage() {
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   useEffect(() => {
     setRemoved(new Set());
-  }, [status, pageIndex, bookId, minLevel, maxLevel, sort, search]);
+  }, [status, pageIndex, bookId, minLevel, maxLevel, minCount, maxCount, sort, search]);
   const visibleRows = rows.filter((r) => !removed.has(r.word));
 
   const mark = useMutation({
@@ -185,6 +213,15 @@ export function LearningPage() {
   });
 
   const levelLabel = levelRangeLabel(minLevel, maxLevel);
+  // Spelled out in the stats line so a short list is never a mystery.
+  const countLabel =
+    minCount && maxCount
+      ? `${minCount}–${maxCount}× across your books`
+      : minCount
+        ? `${minCount}× or more across your books`
+        : maxCount
+          ? `${maxCount}× or fewer across your books`
+          : "";
   const bookName = bookId ? readyBooks.find((b) => b.id === bookId)?.title : null;
 
   return (
@@ -250,6 +287,16 @@ export function LearningPage() {
           }}
         />
 
+        <CountRange
+          min={minCount}
+          max={maxCount}
+          onChange={({ min, max }) => {
+            setMinCount(min);
+            setMaxCount(max);
+            resetView();
+          }}
+        />
+
         <label className="ctl">
           Sort
           <select
@@ -303,6 +350,7 @@ export function LearningPage() {
           {levelLabel ? `${levelLabel} ` : ""}
           {status} word{stats.filtered === 1 ? "" : "s"}
           {bookName ? ` in “${bookName}”` : ""}
+          {countLabel ? ` · ${countLabel}` : ""}
           {stats.filtered !== stats.total &&
             ` · ${stats.total.toLocaleString()} ${status} total`}
         </p>
@@ -315,17 +363,18 @@ export function LearningPage() {
               {sortableTh("word", "Word")}
               {sortableTh("level", "Level")}
               {sortableTh("count", "Count", true)}
-              <th className="right">Triage</th>
+              {sortableTh("books", "In books", true)}
+              <th className="col-triage right">Triage</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((w) => (
               <tr key={w.word}>
-                <td>
+                <td className="col-word">
                   {w.bookId ? (
                     <button
                       className="word-link"
-                      title={`${w.count}× · ${w.level ?? "no level"}`}
+                      title={rowTitle(w)}
                       onClick={() => setOpenWord(w)}
                     >
                       {w.word}
@@ -334,13 +383,16 @@ export function LearningPage() {
                     <span className="word-static">{w.word}</span>
                   )}
                 </td>
-                <td>
+                <td className="col-level">
                   <LevelBadge level={w.level} />
                 </td>
-                <td className="right">
+                <td className="col-count right">
                   <span className="num">{w.count.toLocaleString()}</span>
                 </td>
-                <td className="right">
+                <td className="col-books right">
+                  <span className="num">{w.bookCount.toLocaleString()}</span>
+                </td>
+                <td className="col-triage right">
                   <span className="row-actions">
                     {ALL_STATUSES.filter((s) => s !== status).map((s) => (
                       <button
@@ -398,6 +450,8 @@ export function LearningPage() {
             word: openWord.word,
             level: openWord.level,
             count: openWord.count,
+            libraryCount: openWord.totalCount,
+            bookCount: openWord.bookCount,
             status: openWord.status,
             example: openWord.example,
             bookTitle: openWord.bookTitle,

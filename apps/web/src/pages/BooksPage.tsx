@@ -1,7 +1,13 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listBooks, uploadBook, type Book, type BookStatus } from "../lib/api";
+import {
+  getLibraryWords,
+  listBooks,
+  uploadBook,
+  type Book,
+  type BookStatus,
+} from "../lib/api";
 
 const STATUS_LABEL: Record<BookStatus, string> = {
   uploaded: "queued",
@@ -78,6 +84,9 @@ export function BooksPage() {
         <p className="muted">Loading…</p>
       ) : books.data && books.data.length > 0 ? (
         <div className="book-grid">
+          {/* Always first: the whole library as one list, for picking the words that pay
+              off across every book rather than in one of them. */}
+          <AllBooksCard />
           {books.data.map((b) => (
             <BookCard
               key={b.id}
@@ -91,6 +100,38 @@ export function BooksPage() {
       )}
 
     </section>
+  );
+}
+
+/**
+ * The pinned first card: every book at once. Its counts are unions, not sums — a word in
+ * three books counts once — so they come from the server rather than from adding up the
+ * cards beside it. Only the stats are fetched (`limit: 0`), not the word list.
+ */
+function AllBooksCard() {
+  const stats = useQuery({
+    queryKey: ["library-stats"],
+    queryFn: () => getLibraryWords({ limit: 0, offset: 0 }).then((r) => r.stats),
+  });
+  const s = stats.data;
+  return (
+    <div className="card book-card linkcard all-books-card">
+      <Link to="/books/all" className="stretched-link" aria-label="Open all books" />
+      <div className="book-card-top">
+        <h3>All books</h3>
+      </div>
+      <p className="muted small">your whole library</p>
+      <div className="book-meta muted small">
+        {s ? (
+          <>
+            <span>{s.total.toLocaleString()} unique words</span>
+            <span>{s.remaining.toLocaleString()} to review</span>
+          </>
+        ) : (
+          <span>{stats.isError ? "Counts unavailable" : "Counting…"}</span>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -277,6 +277,54 @@ describe("GET /api/words/review", () => {
   });
 });
 
+describe("GET /api/words/library", () => {
+  it("merges every book into one frequency list", async () => {
+    const a = await createBook(alice.userId, { title: "One" });
+    const b = await createBook(alice.userId, { title: "Two" });
+    await addBookWords(a.id, [{ word: "ocean", lemma: "ocean", count: 4, level: "B1" }]);
+    await addBookWords(b.id, [
+      { word: "ocean", lemma: "ocean", count: 6, level: "B1" },
+      { word: "tide", lemma: "tide", count: 2, level: "B2" },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/words/library?sort=count:desc",
+      headers: { cookie: alice.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      words: { word: string; count: number; bookCount: number; bookTitle: string }[];
+      stats: { total: number; remaining: number };
+    };
+    expect(body.stats).toMatchObject({ total: 2, remaining: 2 });
+    expect(body.words[0]).toMatchObject({
+      word: "ocean",
+      count: 10,
+      bookCount: 2,
+      bookTitle: "Two",
+    });
+  });
+
+  it("returns the stats alone for limit=0 (the All books card)", async () => {
+    const book = await createBook(alice.userId);
+    await addBookWords(book.id, [{ word: "ocean", lemma: "ocean", count: 4 }]);
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/words/library?limit=0",
+      headers: { cookie: alice.cookie },
+    });
+    const body = res.json() as { words: unknown[]; stats: { total: number } };
+    expect(body.words).toEqual([]);
+    expect(body.stats.total).toBe(1);
+  });
+
+  it("requires a session", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/words/library" });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 describe("GET /api/words/export", () => {
   it("returns an Anki-importable TSV deck", async () => {
     const book = await createBook(alice.userId);

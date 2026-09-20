@@ -44,6 +44,32 @@ describe("getWordDetail", () => {
     expect(d!.forms.map((f) => f.word)).toEqual(["said", "says"]);
   });
 
+  it("totals the word across the whole library, per book, most-used first", async () => {
+    // A cached sense keeps the lookup offline (an unknown word would hit the Free
+    // Dictionary API); this test is about the counts, not the definition.
+    await addDefinition("en", "say", [{ pos: "verb", gloss: "to utter words" }]);
+    const other = await createBook(userId, { title: "Another Book", language: "en" });
+    await addBookWords(other.id, [{ word: "saying", lemma: "say", count: 12 }]);
+    const d = await getWordDetail(userId, book, "say");
+    expect(d!.count).toBe(8); // this book only
+    expect(d!.library).toMatchObject({ count: 20, bookCount: 2 });
+    expect(d!.library.books.map((b) => [b.title, b.count])).toEqual([
+      ["Another Book", 12],
+      ["A Book", 8],
+    ]);
+  });
+
+  it("leaves other users' and other languages' books out of the totals", async () => {
+    await addDefinition("en", "say", [{ pos: "verb", gloss: "to utter words" }]);
+    const other = await createUser();
+    const theirs = await createBook(other, { language: "en" });
+    await addBookWords(theirs.id, [{ word: "say", lemma: "say", count: 50 }]);
+    const spanish = await createBook(userId, { language: "es" });
+    await addBookWords(spanish.id, [{ word: "say", lemma: "say", count: 7 }]);
+    const d = await getWordDetail(userId, book, "say");
+    expect(d!.library).toMatchObject({ count: 8, bookCount: 1 });
+  });
+
   it("attaches the user's status and per-book definitions", async () => {
     await setUserWord(userId, "en", "say", "learning");
     await addWordNote(userId, book, "say", "verb of speech");

@@ -6,6 +6,7 @@ import { Layout } from "./components/Layout";
 import { LoginPage } from "./pages/LoginPage";
 import { BooksPage } from "./pages/BooksPage";
 import { BookPage } from "./pages/BookPage";
+import { AllBooksPage } from "./pages/AllBooksPage";
 import { BookSettingsPage } from "./pages/BookSettingsPage";
 import { LearningPage } from "./pages/LearningPage";
 import { ReviewPage } from "./pages/ReviewPage";
@@ -29,6 +30,8 @@ export function App() {
           <Route path="/learning" element={<LearningPage />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/stats" element={<StatsPage />} />
+          {/* Static, so it wins over /books/:id — "all" is never a book id. */}
+          <Route path="/books/all" element={<AllBooksPage />} />
           <Route path="/books/:id" element={<BookPage />} />
           <Route path="/books/:id/settings" element={<BookSettingsPage />} />
         </Route>

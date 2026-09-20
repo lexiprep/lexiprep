@@ -24,12 +24,18 @@ const ACTIONS: { status: UserWordStatus; label: string; cls: string }[] = [
 export interface WordModalInitial {
   word: string;
   level: string | null;
-  count: number;
+  /** Occurrences in the book being opened. Omitted by cross-book callers, which know the
+   * library total (below) but not this book's share — the chip then waits for the detail. */
+  count?: number;
   status: UserWordStatus | null;
   example: string | null;
   /** Title of the book the context phrase was taken from (shown on the cross-book
    * vocabulary page, where a word may come from any of several books). */
   bookTitle?: string | null;
+  /** Occurrences across the whole library, and in how many books — shown until the
+   * detail request lands with the per-book breakdown. */
+  libraryCount?: number;
+  bookCount?: number;
 }
 
 const errMessage = (err: unknown, fallback: string) =>
@@ -141,6 +147,11 @@ export function WordModal({
   const headLevel = d?.level ?? initial?.level ?? null;
   const headCount = d?.count ?? initial?.count ?? null;
   const headExample = d?.example ?? initial?.example ?? null;
+  // Cross-book totals: how much this word pays off outside the book in context. Only
+  // worth showing once it occurs in more than one book — otherwise it repeats `count`.
+  const library = d?.library ?? null;
+  const libraryCount = library?.count ?? initial?.libraryCount ?? null;
+  const libraryBooks = library?.bookCount ?? initial?.bookCount ?? null;
 
   // The surface forms to bold in the context line: the lemma plus every form seen in
   // this book. Falls back to just the word until the detail (with forms) loads.
@@ -160,10 +171,25 @@ export function WordModal({
           <h2>{headWord}</h2>
           {headLevel && <LevelBadge level={headLevel} />}
           {headCount != null && (
-            <span className="count-chip">{headCount.toLocaleString()}×</span>
+            <span
+              className="count-chip"
+              title={
+                initial?.bookTitle
+                  ? `occurrences in “${initial.bookTitle}”`
+                  : "occurrences in this book"
+              }
+            >
+              {headCount.toLocaleString()}×
+            </span>
           )}
           <StatusBadge status={effectiveStatus} />
         </div>
+
+        {libraryCount != null && libraryBooks != null && libraryBooks > 1 && (
+          <p className="library-total muted small">
+            {libraryCount.toLocaleString()}× across {libraryBooks} of your books
+          </p>
+        )}
 
         {headExample && (
           <p className="example">“{highlightForms(headExample, formSet)}”</p>
@@ -210,6 +236,20 @@ export function WordModal({
                 </span>
               ))}
             </p>
+          </div>
+        )}
+
+        {library && library.books.length > 1 && (
+          <div className="modal-section">
+            <h4>Across your books</h4>
+            <ul className="library-books">
+              {library.books.map((b) => (
+                <li key={b.id}>
+                  <span className={b.id === bookId ? "here" : undefined}>{b.title}</span>
+                  <span className="count-chip">{b.count.toLocaleString()}×</span>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 

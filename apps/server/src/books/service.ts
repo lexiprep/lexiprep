@@ -264,18 +264,26 @@ const GROUP_SORT = {
 } as const;
 
 /** Parse "field:dir,field:dir" into ORDER BY fragments over the grouped aggregates. */
-function buildOrderBy(sort: string | undefined): SQL[] {
+function buildOrderBy(
+  sort: string | undefined,
+  fields: Record<string, SQL> = GROUP_SORT,
+): SQL[] {
   const order: SQL[] = [];
   const used = new Set<string>();
   for (const part of (sort ?? "").split(",")) {
     const [field, dir] = part.split(":");
     if (!field || used.has(field)) continue;
-    const expr = GROUP_SORT[field as keyof typeof GROUP_SORT];
+    const expr = fields[field];
     if (!expr) continue;
     used.add(field);
     order.push(sql`${expr} ${sql.raw(dir === "asc" ? "asc" : "desc")} nulls last`);
   }
   if (order.length === 0) order.push(sql`sum(${bookWords.count}) desc`);
+  // "In most books" alone would tie-break alphabetically and read like an A–Z list;
+  // frequency is the question actually being asked, so it breaks the tie.
+  if (used.has("books") && !used.has("count") && fields.count) {
+    order.push(sql`${fields.count} desc nulls last`);
+  }
   if (!used.has("word")) order.push(sql`${KEY} asc`);
   return order;
 }
@@ -419,6 +427,120 @@ export async function getBookWordStats(userId: string, book: Book, q: WordsQuery
     count({ view: "untriaged", minLevel: UNLEVELED, maxLevel: UNLEVELED }),
   ]);
   return { total, remaining, filtered, unleveled };
+}
+
+// ── Library words (every book at once) ───────────────────────────────────────
+
+export interface LibraryWordsQuery extends WordsQuery {
+  /** Only the user's books in this language are rolled up. Defaults to `en`. */
+  language?: string;
+}
+
+/**
+ * Sortable aggregates for the library list. Same three as {@link GROUP_SORT} plus
+ * `books` — in how many of the user's books the word occurs, which only means something
+ * once several books are in scope, and is the cross-book ROI signal: a word spread over
+ * four books is worth more than one that is frequent in a single book.
+ */
+const LIBRARY_SORT: Record<string, SQL> = {
+  count: sql`sum(${bookWords.count})`,
+  word: KEY,
+  level: sql`max(${bookWords.level})`,
+  books: sql`count(distinct ${books.id})`,
+};
+
+/** WHERE shared by the library list and its counts (the stopword HAVING is separate). */
+function libraryWhere(userId: string, language: string, q: LibraryWordsQuery) {
+  return [
+    eq(books.userId, userId),
+    eq(books.language, language),
+    triageCondition(triageView(q)),
+    ...levelRange(bookWords.level, q.minLevel, q.maxLevel),
+    searchCondition(q.q),
+  ];
+}
+
+/**
+ * The whole library as one frequency list: every lemma across **all** the user's books in
+ * one language, with the counts summed — so the words worth learning first surface across
+ * the library instead of one book at a time. Grouping, triage views, CEFR range, search,
+ * sort and paging behave exactly like {@link getBookWords}; the extra columns are
+ * `bookCount` (in how many books the word occurs) and a representative book — the one it
+ * occurs in most, which the word modal is opened against.
+ */
+export function getLibraryWords(userId: string, q: LibraryWordsQuery) {
+  const language = q.language ?? "en";
+  return db
+    .select({
+      word: KEY.as("word"),
+      count: sql<number>`sum(${bookWords.count})::int`.as("count"),
+      bookCount: sql<number>`count(distinct ${books.id})::int`.as("book_count"),
+      level: sql<string | null>`max(${bookWords.level})`.as("level"),
+      example: sql<string | null>`max(${bookWords.example})`.as("example"),
+      bookTitle: sql<
+        string | null
+      >`(array_agg(${books.title} order by ${bookWords.count} desc))[1]`.as("book_title"),
+      bookId: sql<
+        string | null
+      >`(array_agg(${books.id} order by ${bookWords.count} desc))[1]`.as("book_id"),
+      status: userWords.status,
+    })
+    .from(bookWords)
+    .innerJoin(books, eq(books.id, bookWords.bookId))
+    .leftJoin(
+      userWords,
+      and(
+        eq(userWords.userId, userId),
+        eq(userWords.language, language),
+        sql`${userWords.lemma} = ${KEY}`,
+      ),
+    )
+    .where(and(...libraryWhere(userId, language, q)))
+    .groupBy(KEY, userWords.status)
+    // Hide a lemma if any of its surface forms is a function word (as the book page does).
+    .having(q.includeStopwords ? sql`true` : sql`bool_or(${bookWords.isStopword}) = false`)
+    .orderBy(...buildOrderBy(q.sort, LIBRARY_SORT))
+    .limit(Math.min(q.limit ?? 100, 1000))
+    .offset(q.offset ?? 0);
+}
+
+/**
+ * Headline counts for the library list, mirroring {@link getBookWordStats}: `total`
+ * distinct words across the library, `remaining` still untriaged, and `filtered` matching
+ * the current view. Also feeds the "All books" card on the books page — a word in three
+ * books counts once, so these are unions, never sums of the per-book numbers.
+ */
+export async function getLibraryWordStats(userId: string, q: LibraryWordsQuery) {
+  const language = q.language ?? "en";
+  const count = (opts: LibraryWordsQuery): Promise<number> => {
+    const sub = db
+      .select({ k: KEY.as("k") })
+      .from(bookWords)
+      .innerJoin(books, eq(books.id, bookWords.bookId))
+      .leftJoin(
+        userWords,
+        and(
+          eq(userWords.userId, userId),
+          eq(userWords.language, language),
+          sql`${userWords.lemma} = ${KEY}`,
+        ),
+      )
+      .where(and(...libraryWhere(userId, language, opts)))
+      .groupBy(KEY)
+      .having(opts.includeStopwords ? sql`true` : sql`bool_or(${bookWords.isStopword}) = false`)
+      .as("sub");
+    return db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(sub)
+      .then((r) => r[0]?.n ?? 0);
+  };
+
+  const [total, remaining, filtered] = await Promise.all([
+    count({ status: "all" }),
+    count({ status: "" }),
+    count(q),
+  ]);
+  return { total, remaining, filtered };
 }
 
 // ── User vocabulary (user_words) ────────────────────────────────────────────
@@ -640,6 +762,28 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
     )
     .limit(1);
 
+  // How often this word occurs across the user's whole library, per book and in total.
+  // The book-scoped `count` below answers "how much does it pay off in *this* book";
+  // this answers "how much does it pay off at all" — the same question the library list
+  // and the vocabulary's total-count column ask.
+  const libraryBooks = await db
+    .select({
+      id: books.id,
+      title: books.title,
+      count: sql<number>`sum(${bookWords.count})::int`,
+    })
+    .from(bookWords)
+    .innerJoin(books, eq(books.id, bookWords.bookId))
+    .where(
+      and(
+        eq(books.userId, userId),
+        eq(books.language, book.language),
+        sql`${KEY} = ${key}`,
+      ),
+    )
+    .groupBy(books.id, books.title)
+    .orderBy(desc(sql`sum(${bookWords.count})`), asc(books.title));
+
   // Dictionary senses (normalized word_senses; spec 03), falling back to the Free
   // Dictionary API for words the bundle lacks. `[]` = the API definitively has nothing
   // (fetch marker present); `null` = never successfully looked up (transient failure).
@@ -686,6 +830,12 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
     example: forms.find((f) => f.example)?.example ?? null,
     status: uw?.status ?? null,
     forms: forms.map((f) => ({ word: f.word, count: f.count, example: f.example })),
+    /** Cross-book totals: the same word everywhere in the user's library. */
+    library: {
+      count: libraryBooks.reduce((sum, b) => sum + b.count, 0),
+      bookCount: libraryBooks.length,
+      books: libraryBooks,
+    },
     definition, // bundled (make dict-update) or Free Dictionary API fallback (spec 03)
     notes,
     aiDefinition,
@@ -752,9 +902,16 @@ export interface ReviewWordsQuery {
   /** CEFR range (inclusive); each bound is optional and excludes unleveled words. */
   minLevel?: string;
   maxLevel?: string;
+  /**
+   * Inclusive range on the word's **library-wide** occurrence count (every book, not just
+   * the filtered one) — the "worth learning?" filter: `minCount: 10` hides the long tail
+   * of words seen once or twice. Each bound is optional.
+   */
+  minCount?: number;
+  maxCount?: number;
   /** Case-insensitive substring match on the word. */
   q?: string;
-  /** "field:dir" — field ∈ {added, word, level, count}. Defaults to `added:desc`. */
+  /** "field:dir" — field ∈ {added, word, level, count, books}. Defaults to `added:desc`. */
   sort?: string;
   limit?: number;
   offset?: number;
@@ -805,8 +962,48 @@ export function reviewBookAgg(userId: string, language: string, bookId?: string)
     .as("book_agg");
 }
 
+/**
+ * Per-lemma totals over the user's **whole** library — the unscoped twin of
+ * {@link reviewBookAgg}, with its own column aliases so both can be joined into one
+ * query (Drizzle renders subquery sql-columns unqualified, so shared names collide).
+ */
+function libraryTotalAgg(userId: string, language: string) {
+  return db
+    .select({
+      lemma: sql<string>`coalesce(${bookWords.lemma}, ${bookWords.word})`.as("tot_lemma"),
+      count: sql<number>`sum(${bookWords.count})::int`.as("tot_count"),
+      bookCount: sql<number>`count(distinct ${books.id})::int`.as("tot_book_count"),
+    })
+    .from(bookWords)
+    .innerJoin(books, eq(books.id, bookWords.bookId))
+    .where(and(eq(books.userId, userId), eq(books.language, language)))
+    .groupBy(sql`coalesce(${bookWords.lemma}, ${bookWords.word})`)
+    .as("total_agg");
+}
+
+/**
+ * The rollups one vocabulary query needs. `agg` is scoped to the view — one book when the
+ * book filter is on — and decides which words appear and what the `count` column shows.
+ * The total-count filter and the "in N books" column are library-wide *by definition*, so
+ * with a book filter on they read a second, unscoped rollup; without one the scoped
+ * rollup already **is** the library total and is reused, so no second aggregate runs.
+ */
+function vocabScope(userId: string, q: ReviewWordsQuery) {
+  const language = q.language ?? "en";
+  const agg = reviewBookAgg(userId, language, q.bookId);
+  const total = q.bookId ? libraryTotalAgg(userId, language) : null;
+  return {
+    agg,
+    total,
+    totalCount: sql<number>`coalesce(${total ? total.count : agg.count}, 0)`,
+    bookCount: sql<number>`coalesce(${total ? total.bookCount : agg.bookCount}, 0)`,
+  };
+}
+type VocabScope = ReturnType<typeof vocabScope>;
+
 /** WHERE for the review list: the user's words of one status, plus the active filters. */
-function reviewWhere(agg: ReviewAgg, userId: string, q: ReviewWordsQuery): SQL[] {
+function reviewWhere(scope: VocabScope, userId: string, q: ReviewWordsQuery): SQL[] {
+  const agg = scope.agg;
   const where: SQL[] = [
     eq(userWords.userId, userId),
     eq(userWords.language, q.language ?? "en"),
@@ -818,6 +1015,8 @@ function reviewWhere(agg: ReviewAgg, userId: string, q: ReviewWordsQuery): SQL[]
   // summed count is >= 1.)
   where.push(sql`${agg.lemma} is not null`);
   where.push(...levelRange(agg.level, q.minLevel, q.maxLevel));
+  if (q.minCount !== undefined) where.push(sql`${scope.totalCount} >= ${q.minCount}`);
+  if (q.maxCount !== undefined) where.push(sql`${scope.totalCount} <= ${q.maxCount}`);
   if (q.q) {
     where.push(sql`${userWords.lemma} like ${"%" + q.q.trim().toLowerCase() + "%"}`);
   }
@@ -825,12 +1024,13 @@ function reviewWhere(agg: ReviewAgg, userId: string, q: ReviewWordsQuery): SQL[]
 }
 
 /** Parse "field:dir" into ORDER BY fragments; always tie-breaks on the word. */
-function reviewOrderBy(sort: string | undefined, agg: ReviewAgg): SQL[] {
+function reviewOrderBy(sort: string | undefined, scope: VocabScope): SQL[] {
   const fields: Record<string, SQL> = {
     added: sql`${userWords.updatedAt}`,
     word: sql`${userWords.lemma}`,
-    level: sql`${agg.level}`,
-    count: sql`coalesce(${agg.count}, 0)`,
+    level: sql`${scope.agg.level}`,
+    count: sql`coalesce(${scope.agg.count}, 0)`,
+    books: scope.bookCount,
   };
   const order: SQL[] = [];
   const used = new Set<string>();
@@ -840,6 +1040,8 @@ function reviewOrderBy(sort: string | undefined, agg: ReviewAgg): SQL[] {
     used.add(field);
     order.push(sql`${fields[field]} ${sql.raw(dir === "asc" ? "asc" : "desc")} nulls last`);
   }
+  // As in buildOrderBy: "in most books" ranks by frequency within a tie, not by spelling.
+  if (used.has("books") && !used.has("count")) order.push(sql`${fields.count} desc nulls last`);
   if (order.length === 0) order.push(sql`${userWords.updatedAt} desc`);
   if (!used.has("word")) order.push(sql`${userWords.lemma} asc`);
   return order;
@@ -853,23 +1055,30 @@ function reviewOrderBy(sort: string | undefined, agg: ReviewAgg): SQL[] {
  * whose occurrences vanished after reprocessing shouldn't linger in the vocabulary.
  */
 export function listLearningWords(userId: string, q: ReviewWordsQuery) {
-  const agg = reviewBookAgg(userId, q.language ?? "en", q.bookId);
-  return db
+  const scope = vocabScope(userId, q);
+  const { agg, total } = scope;
+  let qb = db
     .select({
       word: userWords.lemma,
       status: userWords.status,
       updatedAt: userWords.updatedAt,
       level: agg.level,
+      /** Occurrences in scope — the whole library, or just the filtered book. */
       count: sql<number>`coalesce(${agg.count}, 0)`,
-      bookCount: sql<number>`coalesce(${agg.bookCount}, 0)`,
+      /** Occurrences across the whole library; equal to `count` unless a book is filtered. */
+      totalCount: scope.totalCount,
+      bookCount: scope.bookCount,
       bookTitle: agg.bookTitle,
       bookId: agg.bookId,
       example: agg.example,
     })
     .from(userWords)
     .leftJoin(agg, sql`${agg.lemma} = ${userWords.lemma}`)
-    .where(and(...reviewWhere(agg, userId, q)))
-    .orderBy(...reviewOrderBy(q.sort, agg))
+    .$dynamic();
+  if (total) qb = qb.leftJoin(total, sql`${total.lemma} = ${userWords.lemma}`);
+  return qb
+    .where(and(...reviewWhere(scope, userId, q)))
+    .orderBy(...reviewOrderBy(q.sort, scope))
     .limit(Math.min(q.limit ?? 100, 1000))
     .offset(q.offset ?? 0);
 }
@@ -979,12 +1188,20 @@ export async function countLearningWords(userId: string, q: ReviewWordsQuery) {
     )
     .then((r) => r[0]?.n ?? 0);
 
-  const agg = reviewBookAgg(userId, language, q.bookId);
-  const filtered = db
+  const scope = vocabScope(userId, q);
+  let filteredQb = db
     .select({ n: sql<number>`count(*)::int` })
     .from(userWords)
-    .leftJoin(agg, sql`${agg.lemma} = ${userWords.lemma}`)
-    .where(and(...reviewWhere(agg, userId, q)))
+    .leftJoin(scope.agg, sql`${scope.agg.lemma} = ${userWords.lemma}`)
+    .$dynamic();
+  if (scope.total) {
+    filteredQb = filteredQb.leftJoin(
+      scope.total,
+      sql`${scope.total.lemma} = ${userWords.lemma}`,
+    );
+  }
+  const filtered = filteredQb
+    .where(and(...reviewWhere(scope, userId, q)))
     .then((r) => r[0]?.n ?? 0);
 
   const [t, f] = await Promise.all([total, filtered]);

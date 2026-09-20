@@ -909,6 +909,12 @@ table.words td.center {
   table.words th.col-status {
     display: none;
   }
+  /* The stacked card has room for word + level + count. "In books" is the one column
+     that doesn't fit; it stays a tap away, in the word modal's cross-book totals. */
+  table.words th.col-books,
+  table.words td.col-books {
+    display: none;
+  }
   /* Shared track sizes keep the header bar aligned with the cards below it. */
   table.words thead tr,
   table.words tbody tr {
@@ -1922,4 +1928,100 @@ kbd {
   .cm-word h2 {
     font-size: 26px;
   }
+}
+
+/* ── All-books card (pinned first in the book grid) ───────────────────────── */
+.all-books-card {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 7%, var(--surface)),
+    var(--surface)
+  );
+}
+.all-books-card h3 {
+  color: var(--accent);
+}
+
+/* ── Count range filter (min–max in a dropdown) ───────────────────────────── */
+.count-range {
+  position: relative;
+}
+.count-range-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.count-range-btn .caret {
+  font-size: 10px;
+  color: var(--muted);
+}
+.count-range-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  width: 250px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+.count-range-inputs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.count-range-inputs input {
+  font: inherit;
+  color: var(--text);
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.count-range-inputs .ctl {
+  flex: 1;
+  gap: 5px;
+}
+.count-range-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* On a phone the trigger sits near the right edge, so a left-anchored panel would run
+   off-screen: anchor it to that edge and never let it exceed the viewport. Declared
+   after the base rule above — a media query doesn't outrank a later equal-specificity one. */
+@media (max-width: 640px) {
+  .count-range-pop {
+    left: auto;
+    right: 0;
+    width: min(250px, calc(100vw - 32px));
+  }
+}
+
+/* ── Cross-book totals in the word modal ──────────────────────────────────── */
+.library-total {
+  margin: -2px 0 0;
+}
+.library-books {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.library-books li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+/* The book the modal was opened from — the counts around it are the other books. */
+.library-books .here {
+  font-weight: 600;
 }

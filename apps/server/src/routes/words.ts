@@ -8,6 +8,8 @@ import {
   countUserWordsByStatus,
   deleteUserWord,
   getBook,
+  getLibraryWords,
+  getLibraryWordStats,
   getVocabularyTimeseries,
   GRANULARITIES,
   listLearningWords,
@@ -52,6 +54,13 @@ function renderAnkiTsv(cards: DeckCard[]): string {
     return `${tsvField(front)}\t${tsvField(back)}`;
   });
   return [...header, ...lines].join("\n") + "\n";
+}
+
+/** A numeric query param: absent, blank or non-numeric all mean "no bound". */
+function num(v: string | undefined): number | undefined {
+  if (v === undefined || v.trim() === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 function isStatus(v: unknown): v is UserWordStatus {
@@ -106,6 +115,9 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       bookId: q.bookId || undefined,
       minLevel: q.minLevel || undefined,
       maxLevel: q.maxLevel || undefined,
+      // Bounds on the library-wide occurrence count, independent of the book filter.
+      minCount: num(q.minCount),
+      maxCount: num(q.maxCount),
       q: q.q || undefined,
       sort: q.sort || undefined,
       limit: q.limit ? Number(q.limit) : 100,
@@ -114,6 +126,29 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
     const [words, stats] = await Promise.all([
       listLearningWords(request.user!.id, opts),
       countLearningWords(request.user!.id, opts),
+    ]);
+    return { words, stats };
+  });
+
+  // Every book at once as one frequency list — the "All books" view. Mirrors
+  // GET /books/:id/words (same triage views, CEFR range, search, sort, paging), summed
+  // across the user's library. `limit=0` returns the stats alone (the books-page card).
+  app.get("/words/library", async (request) => {
+    const q = request.query as Record<string, string | undefined>;
+    const opts = {
+      language: q.language ?? DEFAULT_LANGUAGE,
+      includeStopwords: q.includeStopwords === "true",
+      status: q.status || undefined,
+      minLevel: q.minLevel || undefined,
+      maxLevel: q.maxLevel || undefined,
+      sort: q.sort || undefined,
+      q: q.q || undefined,
+      limit: num(q.limit) ?? 100,
+      offset: num(q.offset) ?? 0,
+    };
+    const [words, stats] = await Promise.all([
+      getLibraryWords(request.user!.id, opts),
+      getLibraryWordStats(request.user!.id, opts),
     ]);
     return { words, stats };
   });

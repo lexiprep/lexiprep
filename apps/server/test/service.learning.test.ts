@@ -79,6 +79,35 @@ describe("listLearningWords", () => {
     expect(counts).toEqual([...counts].sort((a, b) => b - a));
   });
 
+  it("filters by the library-wide occurrence count", async () => {
+    // ocean 8 (5+3), tide 1, suitor 2.
+    const atLeast3 = (await listLearningWords(userId, { minCount: 3 })).map((r) => r.word);
+    expect(atLeast3).toEqual(["ocean"]);
+    const upTo2 = (await listLearningWords(userId, { maxCount: 2 })).map((r) => r.word).sort();
+    expect(upTo2).toEqual(["suitor", "tide"]);
+    const band = (await listLearningWords(userId, { minCount: 2, maxCount: 8 }))
+      .map((r) => r.word)
+      .sort();
+    expect(band).toEqual(["ocean", "suitor"]);
+  });
+
+  it("keeps the count filter library-wide even when one book is in view", async () => {
+    // "ocean" occurs 3× in book2 but 8× across the library — a floor of 5 keeps it, and
+    // the displayed `count` stays the in-view number while `totalCount` is the library's.
+    const rows = await listLearningWords(userId, { bookId: book2Id, minCount: 5 });
+    expect(rows.map((r) => r.word)).toEqual(["ocean"]);
+    expect(rows[0]).toMatchObject({ count: 3, totalCount: 8, bookCount: 2 });
+    // The same floor read book-locally (3 < 5) would have dropped it.
+    const strict = await listLearningWords(userId, { bookId: book2Id, minCount: 9 });
+    expect(strict).toEqual([]);
+  });
+
+  it("sorts by how many books a word spans", async () => {
+    const rows = await listLearningWords(userId, { sort: "books:desc" });
+    expect(rows[0]!.word).toBe("ocean"); // the only word in two books
+    expect(rows[0]!.bookCount).toBe(2);
+  });
+
   it("only returns words of the requested status", async () => {
     await addBookWords(book1Id, [{ word: "reef", lemma: "reef", count: 1, level: "B2" }]);
     await setUserWord(userId, "en", "reef", "known");
@@ -92,6 +121,12 @@ describe("countLearningWords", () => {
     const stats = await countLearningWords(userId, { minLevel: "B2" });
     expect(stats.total).toBe(3); // ocean, suitor, tide (abyss excluded — in no book)
     expect(stats.filtered).toBe(2); // suitor + tide
+  });
+
+  it("counts the count-filtered subset, library-wide, under a book filter", async () => {
+    const stats = await countLearningWords(userId, { bookId: book2Id, minCount: 5 });
+    expect(stats.total).toBe(3); // unchanged by the filters
+    expect(stats.filtered).toBe(1); // ocean: 3× in this book, 8× across the library
   });
 });
 

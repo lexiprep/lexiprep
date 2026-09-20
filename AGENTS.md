@@ -135,6 +135,19 @@ push a `vX.Y.Z` tag → the release workflow publishes to npm via OIDC; then bum
   `db:push` (docker-compose dev `command` + prod `make migrate`). This is the first use of
   drizzle's migrate journal — schema is still managed by `db:push`; `drizzle/` is for
   data/one-off migrations only.
+- **All-books view + cross-book counts** done: `GET /api/words/library` (`getLibraryWords`
+  /`getLibraryWordStats`) rolls every book of one language into a single frequency list —
+  same grouping, triage views, CEFR range, search, sort and paging as `GET /books/:id/words`,
+  plus `bookCount` (sortable as `books:`) and a representative book for the modal. Web: an
+  **"All books" card pinned first** in the book grid (its counts are unions, not sums —
+  fetched with `limit=0`) opening `/books/all` (`AllBooksPage`), a lean table with per-row
+  triage (cross-book already, so a word marked here is resolved everywhere); the per-book
+  review machinery (fixed batches, unleveled gate, "Finish book") stays on the book page.
+  Vocabulary gained an **"In books"** column and a **total-count filter** (`minCount`/
+  `maxCount` in a `CountRange` dropdown) which always reads the **library-wide** total, even
+  with a book filter on — `vocabScope` joins a second unscoped rollup only in that case, and
+  rows carry `totalCount` beside the in-view `count`. `getWordDetail` returns `library`
+  (total, book count, per-book breakdown), shown in the word modal.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

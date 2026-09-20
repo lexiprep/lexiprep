@@ -50,6 +50,24 @@ export interface BookWordStats {
   unleveled: number;
 }
 
+/** A row in the library-wide frequency list (`GET /api/words/library`). */
+export interface LibraryWordRow extends BookWordRow {
+  /** In how many of your books the word occurs. */
+  bookCount: number;
+  /** The book it occurs in most — what the word modal is opened against. */
+  bookTitle: string | null;
+  bookId: string | null;
+}
+
+export interface LibraryWordStats {
+  /** Distinct words across every book (a word in three books counts once). */
+  total: number;
+  /** Still to review (untriaged). */
+  remaining: number;
+  /** Matching the current filter. */
+  filtered: number;
+}
+
 export interface WordForm {
   word: string;
   count: number;
@@ -78,10 +96,19 @@ export interface WordNoteItem {
   note: string;
 }
 
+/** The same word across the user's whole library (all books, one language). */
+export interface WordLibraryTotals {
+  count: number;
+  bookCount: number;
+  books: { id: string; title: string; count: number }[];
+}
+
 export interface WordDetail {
   word: string;
   lemma: string | null;
+  /** Occurrences in *this* book; `library.count` is the cross-book total. */
   count: number;
+  library: WordLibraryTotals;
   level: string | null;
   example: string | null;
   status: UserWordStatus | null;
@@ -222,6 +249,15 @@ export const getBookWords = (id: string, params: WordsParams) =>
     words: BookWordRow[];
   }>(`/api/books/${id}/words${qs({ ...params })}`);
 
+/**
+ * Every book at once as one frequency list. Same params as a book's word list; pass
+ * `limit: 0` to fetch the stats alone (what the "All books" card shows).
+ */
+export const getLibraryWords = (params: WordsParams & { language?: string }) =>
+  request<{ stats: LibraryWordStats; words: LibraryWordRow[] }>(
+    `/api/words/library${qs({ ...params })}`,
+  );
+
 export const getWordDetail = (id: string, word: string) =>
   request<WordDetail>(`/api/books/${id}/words/${encodeURIComponent(word)}`);
 
@@ -285,7 +321,9 @@ export interface ReviewWord {
   level: string | null;
   /** Total occurrences across the matched books (or the single filtered book). */
   count: number;
-  /** How many of the user's books this word appears in. */
+  /** Occurrences across the whole library; equals `count` unless a book is filtered. */
+  totalCount: number;
+  /** How many of the user's books this word appears in (always library-wide). */
   bookCount: number;
   /** A representative book — the one where it occurs most. Null if in no book. */
   bookTitle: string | null;
@@ -308,6 +346,9 @@ export interface ReviewWordsParams {
   bookId?: string;
   minLevel?: string;
   maxLevel?: string;
+  /** Inclusive bounds on the library-wide count, whatever the book filter is. */
+  minCount?: number;
+  maxCount?: number;
   q?: string;
   sort?: string;
   language?: string;
