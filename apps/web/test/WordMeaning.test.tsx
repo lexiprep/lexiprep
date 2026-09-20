@@ -82,15 +82,31 @@ describe("WordMeaning — book-scoped definition hierarchy", () => {
     expect(screen.queryByText("a large body of salt water")).not.toBeInTheDocument();
   });
 
-  it("outside a book context the dictionary stays, notes show as an addition", () => {
+  it("outside a book context the dictionary stays when there are no AI meanings", () => {
+    renderMeaning({
+      bookScoped: false,
+      aiSenses: null,
+      notes: [{ id: "n1", note: "my own take" }],
+    });
+    expect(screen.getByText("a large body of salt water")).toBeInTheDocument();
+    expect(screen.getByText("my own take")).toBeInTheDocument();
+    expect(screen.queryByText(/AI/)).not.toBeInTheDocument();
+  });
+
+  it("outside a book context AI meanings replace the dictionary, notes still show", () => {
+    // In a library-wide view `aiSenses` are the word's own (book-independent) meanings:
+    // 1-3 short learner phrases, which beat the dictionary's longer list. The user's own
+    // notes are an addition here, not a replacement — only a book context gives them
+    // precedence over everything else.
     renderMeaning({
       bookScoped: false,
       aiSenses: AI,
       notes: [{ id: "n1", note: "my own take" }],
     });
-    expect(screen.getByText("a large body of salt water")).toBeInTheDocument();
+    expect(screen.getByText("AI meanings")).toBeInTheDocument();
+    expect(screen.getByText(/without book context/)).toBeInTheDocument();
+    expect(screen.queryByText("a large body of salt water")).not.toBeInTheDocument();
     expect(screen.getByText("my own take")).toBeInTheDocument();
-    expect(screen.queryByText(/AI definition/)).not.toBeInTheDocument();
   });
 
   it("adds another definition and reports the new list", async () => {

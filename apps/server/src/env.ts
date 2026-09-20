@@ -18,6 +18,12 @@ const schema = z.object({
   OPENROUTER_API_KEY: z.string().optional(),
   OPENROUTER_DEFINITION_MODEL: z.string().default("google/gemini-3.1-flash-lite"),
   OPENROUTER_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * Bound on the Free Dictionary fallback (dictionaryapi.dev). It sits inline in the
+   * word-detail request, so an unbounded call hangs the whole word modal: the API has
+   * been seen taking ~20s (and answering 522) for every word at once.
+   */
+  FREEDICT_TIMEOUT_MS: z.coerce.number().int().positive().default(3_000),
 });
 
 export const env = schema.parse(process.env);

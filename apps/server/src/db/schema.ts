@@ -415,6 +415,37 @@ export const aiDefinitions = pgTable(
   (t) => [unique("ai_definitions_book_lemma_uniq").on(t.bookId, t.lemma)],
 );
 
+/**
+ * Context-free AI definition job state: one row per (language, lemma), independent of
+ * any book. The contextual twin ({@link aiDefinitions}) hangs off a book and dies with
+ * it; this one describes the word itself, so it has no book FK and outlives every book
+ * it was ever requested from. Its senses live in {@link wordSenses} with a null
+ * `bookId` and `ai = true`, which is what separates them from the shared dictionary.
+ * The row is global on purpose: the word means the same for everyone, so the first
+ * user's generation serves the rest (metering still bills whoever triggered it).
+ */
+export const aiWordDefinitions = pgTable(
+  "ai_word_definitions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    language: text("language").notNull(),
+    lemma: text("lemma").notNull(),
+    /** pending | done | failed ({@link AI_DEFINITION_STATUSES}). */
+    status: text("status").notNull().default("pending"),
+    error: text("error"),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    costUsd: real("cost_usd"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("ai_word_definitions_lang_lemma_uniq").on(t.language, t.lemma)],
+);
+
+export type AiWordDefinition = typeof aiWordDefinitions.$inferSelect;
+export type NewAiWordDefinition = typeof aiWordDefinitions.$inferInsert;
+
 export type WordLevel = typeof wordLevels.$inferSelect;
 export type NewWordLevel = typeof wordLevels.$inferInsert;
 export type Definition = typeof definitions.$inferSelect;

@@ -6,7 +6,10 @@
  * via migrations. Adding a feature = add a slug here (no DB migration needed to
  * *register* it; a migration only seeds/changes its limits).
  */
-export const PAID_FEATURES = ["ai-word-definition-from-context"] as const;
+export const PAID_FEATURES = [
+  "ai-word-definition-from-context",
+  "ai-word-definition-general",
+] as const;
 
 export type PaidFeatureSlug = (typeof PAID_FEATURES)[number];
 
@@ -29,6 +32,11 @@ export const FEATURE_META: Record<PaidFeatureSlug, FeatureMeta> = {
     description: "Explains a word using the sentence it appears in.",
     enforced: true,
   },
+  "ai-word-definition-general": {
+    label: "AI word meanings",
+    description: "Explains a word on its own, with no book in context.",
+    enforced: true,
+  },
 };
 
 /** Type guard: is `v` a known paid-feature slug? */
@@ -38,3 +46,10 @@ export function isPaidFeature(v: unknown): v is PaidFeatureSlug {
 
 /** The AI contextual-definition pipeline's slug (routes, trigger service, worker). */
 export const AI_DEFINITION_SLUG: PaidFeatureSlug = "ai-word-definition-from-context";
+
+/**
+ * The context-free pipeline's slug. Metered separately: it is the cheaper call (no book
+ * context to assemble or send) and its result is shared by every user, so it shouldn't
+ * eat the contextual feature's budget.
+ */
+export const AI_GENERAL_DEFINITION_SLUG: PaidFeatureSlug = "ai-word-definition-general";

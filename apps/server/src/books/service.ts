@@ -20,6 +20,7 @@ import {
   userWords,
   userWordEvents,
   aiDefinitions,
+  aiWordDefinitions,
   wordNotes,
   type Book,
   type NewUserWordEvent,
@@ -30,6 +31,7 @@ import {
 import {
   fetchAndCacheDefinition,
   getAiSenses,
+  getGlobalAiSenses,
   getDictionarySenses,
   getDictionarySensesForLemmas,
   hasDefinitionFetch,
@@ -732,6 +734,13 @@ export async function finishBookReview(
 }
 
 /**
+ * Why the detail carries no dictionary senses: the word genuinely has no entry
+ * (`absent`), or the lookup itself failed / timed out (`unavailable`). Without this the
+ * UI can only say "no definition found", which is a lie in the second case.
+ */
+export type DefinitionStatus = "ok" | "absent" | "unavailable";
+
+/**
  * Word detail for the modal, keyed by the base form (the list row's `word`). Lists every
  * surface form (conjugation) that appears in the text with its own count and example.
  * `definition` is fetched lazily by the enrichment layer (spec 03) — null until that lands.
@@ -787,11 +796,20 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
   // Dictionary senses (normalized word_senses; spec 03), falling back to the Free
   // Dictionary API for words the bundle lacks. `[]` = the API definitively has nothing
   // (fetch marker present); `null` = never successfully looked up (transient failure).
+  // `definitionStatus` carries that distinction to the UI, which otherwise reports a
+  // failed lookup as "no definition found" — telling the user a word has no meaning
+  // when really the dictionary was unreachable.
   let definition = await getDictionarySenses(book.language, key);
+  let definitionStatus: DefinitionStatus = definition ? "ok" : "absent";
   if (definition === null && book.language === "en") {
-    definition = (await hasDefinitionFetch(book.language, key))
-      ? []
-      : await fetchAndCacheDefinition(book.language, key);
+    if (await hasDefinitionFetch(book.language, key)) {
+      definition = [];
+    } else {
+      const fetched = await fetchAndCacheDefinition(book.language, key);
+      definition = fetched;
+      if (fetched === null) definitionStatus = "unavailable";
+      else if (fetched.length > 0) definitionStatus = "ok";
+    }
   }
 
   // The user's own definitions for this word in this book — several are allowed;
@@ -822,6 +840,26 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
       }
     : null;
 
+  // The context-free definition for this word: global, book-independent, and what the
+  // library-wide modal offers in place of a book's contextual one.
+  const [aiWord] = await db
+    .select({ status: aiWordDefinitions.status, error: aiWordDefinitions.error })
+    .from(aiWordDefinitions)
+    .where(
+      and(
+        eq(aiWordDefinitions.language, book.language),
+        eq(aiWordDefinitions.lemma, key),
+      ),
+    )
+    .limit(1);
+  const generalAiDefinition = aiWord
+    ? {
+        status: aiWord.status,
+        senses: aiWord.status === "done" ? await getGlobalAiSenses(book.language, key) : null,
+        error: aiWord.error,
+      }
+    : null;
+
   return {
     word: key,
     lemma: key,
@@ -837,8 +875,11 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
       books: libraryBooks,
     },
     definition, // bundled (make dict-update) or Free Dictionary API fallback (spec 03)
+    definitionStatus,
     notes,
     aiDefinition,
+    /** Book-independent meanings, shown when no single book is in context. */
+    generalAiDefinition,
     aiDefinitionEnabled: Boolean(env.OPENROUTER_API_KEY),
   };
 }

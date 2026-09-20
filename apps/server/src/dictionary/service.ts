@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { env } from "../env.js";
 import { db } from "../db/client.js";
 import { definitionFetches, wordSenses, type WordSense } from "../db/schema.js";
 
@@ -30,6 +31,9 @@ export async function getDictionarySenses(
         eq(wordSenses.language, language),
         eq(wordSenses.lemma, lemma),
         isNull(wordSenses.bookId),
+        // Context-free AI senses share the null-bookId space; they are not the
+        // dictionary and must never be served under its attribution.
+        eq(wordSenses.ai, false),
       ),
     )
     .orderBy(asc(wordSenses.idx));
@@ -56,6 +60,7 @@ export async function getDictionarySensesForLemmas(
         eq(wordSenses.language, language),
         inArray(wordSenses.lemma, lemmas),
         isNull(wordSenses.bookId),
+        eq(wordSenses.ai, false),
       ),
     )
     .orderBy(asc(wordSenses.lemma), asc(wordSenses.idx));
@@ -65,6 +70,26 @@ export async function getDictionarySensesForLemmas(
     map.set(row.lemma, list);
   }
   return map;
+}
+
+/** The context-free AI senses for a lemma (no book), in stored order. Null = none. */
+export async function getGlobalAiSenses(
+  language: string,
+  lemma: string,
+): Promise<WordSense[] | null> {
+  const rows = await db
+    .select({ pos: wordSenses.pos, gloss: wordSenses.gloss, example: wordSenses.example })
+    .from(wordSenses)
+    .where(
+      and(
+        eq(wordSenses.language, language),
+        eq(wordSenses.lemma, lemma),
+        isNull(wordSenses.bookId),
+        eq(wordSenses.ai, true),
+      ),
+    )
+    .orderBy(asc(wordSenses.idx));
+  return rows.length > 0 ? rows.map(toSense) : null;
 }
 
 /** The AI senses generated for a lemma in one book, in stored order. Null = none. */
@@ -103,7 +128,11 @@ export async function fetchAndCacheDefinition(
 ): Promise<WordSense[] | null> {
   let senses: WordSense[];
   try {
-    const res = await fetch(FREEDICT_URL + encodeURIComponent(lemma));
+    // Bounded: this runs inside the word-detail request, so a slow upstream would
+    // otherwise hold the whole word modal open (undici waits 300s for headers).
+    const res = await fetch(FREEDICT_URL + encodeURIComponent(lemma), {
+      signal: AbortSignal.timeout(env.FREEDICT_TIMEOUT_MS),
+    });
     if (res.status === 404) {
       senses = []; // definitively absent — cache the negative via the fetch marker
     } else if (!res.ok) {

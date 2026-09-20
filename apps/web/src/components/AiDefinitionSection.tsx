@@ -1,14 +1,17 @@
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ApiError,
   generateAiDefinition,
+  generateGeneralAiDefinition,
   type AiDefinition,
   type PaidFeatureSlug,
 } from "../lib/api";
 import { UsageLimitTip, useFeatureUsage, usageLimitMessage } from "./FeatureUsage";
 
-const SLUG: PaidFeatureSlug = "ai-word-definition-from-context";
+const BOOK_SLUG: PaidFeatureSlug = "ai-word-definition-from-context";
+const GENERAL_SLUG: PaidFeatureSlug = "ai-word-definition-general";
 
 /**
  * The AI-definition *controls* in the word modal (spec 10/13): the generate button,
@@ -21,58 +24,85 @@ const SLUG: PaidFeatureSlug = "ai-word-definition-from-context";
 export function AiDefinitionSection({
   bookId,
   word,
+  language = "en",
   aiDefinition,
   enabled,
   bookScoped,
 }: {
   bookId: string;
   word: string;
+  language?: string;
+  /**
+   * The relevant definition's state: the book's contextual one inside a book, the
+   * word's own (book-independent) one everywhere else. The caller picks which.
+   */
   aiDefinition: AiDefinition | null;
   /** Server capability: false = no OpenRouter key configured → render nothing. */
   enabled: boolean;
-  /** Only a book-scoped modal can generate (the definition is contextual to a book). */
+  /**
+   * A book is in context → generate the contextual definition from its sentences.
+   * Otherwise generate the context-free one: the word's own meanings, no book.
+   */
   bookScoped?: boolean;
 }) {
   const qc = useQueryClient();
-  const canGenerate =
-    enabled && !!bookScoped && (aiDefinition === null || aiDefinition.status === "failed");
+  // The server's `pending` only reaches us on the next word-detail fetch, and that
+  // request can be slow (it may be waiting on the dictionary API). Until it lands, this
+  // remembers that we asked — otherwise the button stays live and invites a second
+  // click on a request that is already running.
+  const [requested, setRequested] = useState(false);
+  const status = aiDefinition?.status ?? (requested ? "pending" : null);
+  // Once the server reports any state of its own, it is authoritative again.
+  useEffect(() => {
+    if (aiDefinition) setRequested(false);
+  }, [aiDefinition]);
+
+  const canGenerate = enabled && (status === null || status === "failed");
+  const slug = bookScoped ? BOOK_SLUG : GENERAL_SLUG;
   // Only consult the advisory usage endpoint while there is a button to gate.
-  const usage = useFeatureUsage(SLUG, canGenerate);
+  const usage = useFeatureUsage(slug, canGenerate);
 
   const generate = useMutation({
-    mutationFn: () => generateAiDefinition(bookId, word),
+    mutationFn: () =>
+      bookScoped
+        ? generateAiDefinition(bookId, word)
+        : generateGeneralAiDefinition(word, language),
+    // Flip to "generating" on click, not on the refetch that may be seconds away.
+    onMutate: () => setRequested(true),
     onError: (err) => {
       // 409 = someone already generated it — the refetch below shows the result.
       if (err instanceof ApiError && err.status === 409) return;
+      // The request didn't take, so offer the button again.
+      setRequested(false);
       toast.error(err instanceof Error ? err.message : "Couldn't request the AI definition.");
     },
     // Either way, refresh the word detail (starts the pending poll) + remaining usage.
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["word", bookId, word] });
-      qc.invalidateQueries({ queryKey: ["usage", SLUG] });
+      qc.invalidateQueries({ queryKey: ["usage", slug] });
     },
   });
 
   if (!enabled) return null;
 
   // Done → the meanings render inside WordMeaning (per-book replacement); nothing here.
-  if (aiDefinition?.status === "done") return null;
+  if (status === "done") return null;
 
-  if (aiDefinition?.status === "pending") {
+  if (status === "pending") {
     return (
       <div className="modal-section ai-definition">
         <h4>
           AI definition <span className="ai-badge">AI</span>
         </h4>
-        <p className="muted small">Generating from this book’s context…</p>
+        <p className="muted small">
+          {bookScoped ? "Generating from this book’s context…" : "Generating the word’s meanings…"}
+        </p>
       </div>
     );
   }
 
-  if (!bookScoped) return null;
-
   const message = usageLimitMessage(usage.data);
-  const failed = aiDefinition?.status === "failed";
+  const failed = status === "failed";
   return (
     <div className="modal-section ai-definition">
       {failed && (
@@ -88,7 +118,9 @@ export function AiDefinitionSection({
             ? "Requesting…"
             : failed
               ? "Try AI definition again"
-              : "✨ AI definition"}
+              : bookScoped
+                ? "✨ AI definition"
+                : "✨ AI meanings"}
         </button>
       </UsageLimitTip>
     </div>

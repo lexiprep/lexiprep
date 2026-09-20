@@ -103,6 +103,9 @@ export interface WordLibraryTotals {
   books: { id: string; title: string; count: number }[];
 }
 
+/** Why `definition` is empty: the word has no entry, or the lookup itself failed. */
+export type DefinitionStatus = "ok" | "absent" | "unavailable";
+
 export interface WordDetail {
   word: string;
   lemma: string | null;
@@ -114,9 +117,13 @@ export interface WordDetail {
   status: UserWordStatus | null;
   forms: WordForm[];
   definition: WordSense[] | null;
+  /** Distinguishes "this word has no definition" from "we couldn't reach the dictionary". */
+  definitionStatus: DefinitionStatus;
   /** The user's own per-book definitions; book-scoped they replace AI/dictionary. */
   notes: WordNoteItem[];
   aiDefinition: AiDefinition | null;
+  /** Book-independent meanings — what a library-wide modal offers instead. */
+  generalAiDefinition: AiDefinition | null;
   /** False when the server has no OpenRouter key — hide the AI UI entirely. */
   aiDefinitionEnabled: boolean;
 }
@@ -286,6 +293,16 @@ export const deleteWordNote = (id: string, word: string, noteId: string) =>
 export const generateAiDefinition = (id: string, word: string) =>
   request<{ aiDefinition: AiDefinition }>(
     `/api/books/${id}/words/${encodeURIComponent(word)}/ai-definition`,
+    { method: "POST" },
+  );
+
+/**
+ * Request the context-free AI definition for a word (202 → poll the word detail).
+ * 429 = usage limit (ApiError carries `retryAfter`); 409 = already generated.
+ */
+export const generateGeneralAiDefinition = (word: string, language = "en") =>
+  request<{ aiDefinition: AiDefinition }>(
+    `/api/words/${encodeURIComponent(word)}/ai-definition${qs({ language })}`,
     { method: "POST" },
   );
 
@@ -584,7 +601,9 @@ export const updateSettings = (patch: Partial<UserSettings>) =>
 // ── Usage limits / paid features (spec 13) ─────────────────────────────────────
 
 /** Slugs mirror the server registry (`apps/server/src/usage/features.ts`). */
-export type PaidFeatureSlug = "ai-word-definition-from-context";
+export type PaidFeatureSlug =
+  | "ai-word-definition-from-context"
+  | "ai-word-definition-general";
 export type UsageWindow = "minute" | "hour" | "day" | "month";
 
 export interface UsageWindowInfo {

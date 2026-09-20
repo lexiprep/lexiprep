@@ -51,6 +51,38 @@ export const AI_DEFINITION_JSON_SCHEMA = {
   },
 } as const;
 
+/**
+ * The context-free twin of {@link AI_DEFINITION_JSON_SCHEMA}: same shape, but ordered by
+ * how common a meaning is rather than by a book's usage — there is no book here.
+ */
+export const AI_GENERAL_DEFINITION_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["meanings"],
+  properties: {
+    meanings: {
+      type: "array",
+      minItems: 1,
+      maxItems: MAX_MEANINGS,
+      description:
+        "One entry per genuinely different meaning - a single entry is the norm. The most common meaning first.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["pos", "meaning"],
+        properties: {
+          pos: { type: "string", enum: [...POS_VALUES] },
+          meaning: {
+            type: "string",
+            description:
+              "A short, simple definition of about 5-12 plain words, for an advanced English learner.",
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 export interface AiMeaning {
   pos: string;
   meaning: string;
@@ -101,6 +133,38 @@ const SYSTEM_PROMPT = [
   "- Include only meanings that are plausible for this word in general usage - never invent rare senses.",
   "- Put the meaning most relevant to the book's context first.",
 ].join("\n");
+
+// The context-free variant: no book, so nothing to be "relevant to" — the ordering rule
+// becomes frequency of use. Everything else (brevity, no padding, no invented senses) is
+// the same discipline as the contextual prompt, and the cap still lives only in the
+// schema + the server-side slice, never in the prose.
+const GENERAL_SYSTEM_PROMPT = [
+  "You are a lexicographer writing very short word definitions for an advanced English learner.",
+  "Rules:",
+  "- Most words are used one way: give exactly ONE meaning. Add another only when the word has a genuinely unrelated second meaning (a different part of speech, or a completely different sense - like 'bank': river edge vs. money institution).",
+  "- Never restate the same meaning in different words. If two candidate meanings overlap, merge them into one.",
+  "- Each meaning is one short, simple phrase of about 5-12 words, in plain everyday language. No jargon, no circular definitions.",
+  "- Give the part of speech for each meaning.",
+  "- Include only meanings that are plausible for this word in general usage - never invent rare senses.",
+  "- Put the most common everyday meaning first.",
+].join("\n");
+
+/**
+ * Build the (system, user) pair for a word on its own — no book, no example sentences.
+ * Used by the library-wide word modal, where no single book is in context.
+ */
+export function buildGeneralDefinitionPrompt(p: {
+  lemma: string;
+  language: string;
+}): { system: string; user: string } {
+  const user = [
+    `Word: "${p.lemma}"`,
+    `Language: ${p.language}`,
+    "",
+    "Define this word as it is generally used. No book or sentence context is available.",
+  ].join("\n");
+  return { system: GENERAL_SYSTEM_PROMPT, user };
+}
 
 /** Build the (system, user) message pair for one word in one book. */
 export function buildDefinitionPrompt(p: DefinitionPromptInput): {

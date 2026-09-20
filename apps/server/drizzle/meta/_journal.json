@@ -36,6 +36,13 @@
       "when": 1783296000001,
       "tag": "0004_bump_ai_definition_minute_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783296000002,
+      "tag": "0005_seed_general_ai_definition_limits",
+      "breakpoints": true
     }
   ]
 }

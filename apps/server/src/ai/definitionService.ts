@@ -1,12 +1,16 @@
 import { and, eq } from "drizzle-orm";
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "../db/client.js";
-import { aiDefinitions } from "../db/schema.js";
+import { aiDefinitions, aiWordDefinitions } from "../db/schema.js";
 import { env } from "../env.js";
-import { getBoss, AI_DEFINITION_QUEUE } from "../queue/boss.js";
+import {
+  getBoss,
+  AI_DEFINITION_QUEUE,
+  AI_WORD_DEFINITION_QUEUE,
+} from "../queue/boss.js";
 import type { UserWordTransition } from "../books/service.js";
 
-export { AI_DEFINITION_SLUG } from "../usage/features.js";
+export { AI_DEFINITION_SLUG, AI_GENERAL_DEFINITION_SLUG } from "../usage/features.js";
 
 export type AiDefinitionRequestResult =
   | "enqueued" // we created (or revived) the row and queued the job
@@ -73,6 +77,69 @@ export async function requestAiDefinition(
       .update(aiDefinitions)
       .set({ status: "failed", error: "Could not queue the retry" })
       .where(and(eq(aiDefinitions.id, existing.id), eq(aiDefinitions.status, "pending")));
+    throw err;
+  }
+  return "enqueued";
+}
+
+/**
+ * The context-free twin of {@link requestAiDefinition}: one definition per
+ * (language, lemma), independent of any book. Same idempotence — the conflicting insert
+ * decides who enqueues — and the same rules (`done` is final, `failed` revives only on
+ * an explicit retry). `userId` rides along on the job because the row is global but the
+ * quota is personal: whoever asks pays for the generation everyone then reuses.
+ */
+export async function requestGeneralAiDefinition(
+  language: string,
+  lemma: string,
+  userId: string,
+  opts: { retryFailed: boolean },
+): Promise<AiDefinitionRequestResult> {
+  if (!env.OPENROUTER_API_KEY) return "disabled";
+  const key = lemma.trim().toLowerCase();
+
+  const inserted = await db
+    .insert(aiWordDefinitions)
+    .values({ language, lemma: key })
+    .onConflictDoNothing({ target: [aiWordDefinitions.language, aiWordDefinitions.lemma] })
+    .returning({ id: aiWordDefinitions.id });
+
+  if (inserted.length > 0) {
+    try {
+      await getBoss().send(AI_WORD_DEFINITION_QUEUE, { language, lemma: key, userId });
+    } catch (err) {
+      await db.delete(aiWordDefinitions).where(eq(aiWordDefinitions.id, inserted[0]!.id));
+      throw err;
+    }
+    return "enqueued";
+  }
+
+  const [existing] = await db
+    .select({ id: aiWordDefinitions.id, status: aiWordDefinitions.status })
+    .from(aiWordDefinitions)
+    .where(and(eq(aiWordDefinitions.language, language), eq(aiWordDefinitions.lemma, key)))
+    .limit(1);
+  if (!existing) return "pending"; // deleted between insert and read — treat as in-flight
+  if (existing.status === "done") return "done";
+  if (existing.status === "pending") return "pending";
+
+  // status === "failed"
+  if (!opts.retryFailed) return "failed";
+  const revived = await db
+    .update(aiWordDefinitions)
+    .set({ status: "pending", error: null })
+    .where(and(eq(aiWordDefinitions.id, existing.id), eq(aiWordDefinitions.status, "failed")))
+    .returning({ id: aiWordDefinitions.id });
+  if (revived.length === 0) return "pending"; // a concurrent retry won the flip
+  try {
+    await getBoss().send(AI_WORD_DEFINITION_QUEUE, { language, lemma: key, userId });
+  } catch (err) {
+    await db
+      .update(aiWordDefinitions)
+      .set({ status: "failed", error: "Could not queue the retry" })
+      .where(
+        and(eq(aiWordDefinitions.id, existing.id), eq(aiWordDefinitions.status, "pending")),
+      );
     throw err;
   }
   return "enqueued";

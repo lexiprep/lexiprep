@@ -70,6 +70,37 @@ describe("getWordDetail", () => {
     expect(d!.library).toMatchObject({ count: 8, bookCount: 1 });
   });
 
+  it("carries the word's context-free AI definition alongside the book's own", async () => {
+    // The library-wide modal shows this one; the book modal shows the contextual one.
+    // Both travel in the same payload so the modal can pick by scope.
+    await addDefinition("en", "say", [{ pos: "verb", gloss: "to utter words" }]);
+    expect((await getWordDetail(userId, book, "say"))!.generalAiDefinition).toBeNull();
+
+    await db.insert(schema.aiWordDefinitions).values({
+      language: "en",
+      lemma: "say",
+      status: "done",
+    });
+    await db.insert(schema.wordSenses).values({
+      language: "en",
+      lemma: "say",
+      bookId: null,
+      idx: 0,
+      pos: "verb",
+      gloss: "to speak words aloud",
+      source: "ai",
+      ai: true,
+    });
+
+    const d = await getWordDetail(userId, book, "say");
+    expect(d!.generalAiDefinition).toMatchObject({ status: "done" });
+    expect(d!.generalAiDefinition!.senses).toEqual([
+      { pos: "verb", gloss: "to speak words aloud" },
+    ]);
+    // ...and the AI senses never pass themselves off as the dictionary.
+    expect(d!.definition).toEqual([{ pos: "verb", gloss: "to utter words" }]);
+  });
+
   it("attaches the user's status and per-book definitions", async () => {
     await setUserWord(userId, "en", "say", "learning");
     await addWordNote(userId, book, "say", "verb of speech");
@@ -156,10 +187,45 @@ describe("getWordDetail — Free Dictionary fallback", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("reports why the definition is missing: absent vs unavailable vs ok", async () => {
+    // Bundled/cached senses → ok (no lookup at all).
+    await addBookWords(book.id, [{ word: "ship", lemma: "ship", count: 1 }]);
+    await addDefinition("en", "ship", [{ pos: "noun", gloss: "a large boat" }]);
+    expect((await getWordDetail(userId, book, "ship"))!.definitionStatus).toBe("ok");
+
+    // The API answers "no such word" (404) → genuinely absent, and cached as such.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 404 }));
+    const absent = await getWordDetail(userId, book, "obscure");
+    expect(absent!.definition).toEqual([]);
+    expect(absent!.definitionStatus).toBe("absent");
+  });
+
+  it("gives up on a slow dictionary instead of hanging the whole modal", async () => {
+    // The lookup sits inline in this request, so an upstream that never answers would
+    // hold the word modal open indefinitely (undici waits 300s for headers).
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          const signal = (init as RequestInit | undefined)?.signal;
+          expect(signal).toBeInstanceOf(AbortSignal);
+          signal?.addEventListener("abort", () =>
+            reject(Object.assign(new Error("aborted"), { name: "TimeoutError" })),
+          );
+        }),
+    );
+    const started = Date.now();
+    const d = await getWordDetail(userId, book, "obscure");
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(d!.definitionStatus).toBe("unavailable");
+  });
+
   it("does not cache on a transient error (allows a later retry)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("", { status: 503 }));
     const d = await getWordDetail(userId, book, "obscure");
     expect(d!.definition).toBeNull();
+    // A failed lookup is not the same as a word with no entry — the UI would otherwise
+    // tell the user the word has no definition when the dictionary was simply down.
+    expect(d!.definitionStatus).toBe("unavailable");
     const rows = await db
       .select()
       .from(wordSenses)

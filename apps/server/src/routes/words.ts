@@ -1,7 +1,14 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../auth/session.js";
 import { USER_WORD_STATUSES, type UserWordStatus, type WordEventSource } from "../db/schema.js";
-import { triggerAiDefinitions } from "../ai/definitionService.js";
+import {
+  AI_GENERAL_DEFINITION_SLUG,
+  requestGeneralAiDefinition,
+  triggerAiDefinitions,
+} from "../ai/definitionService.js";
+import { env } from "../env.js";
+import { peek } from "../usage/service.js";
+import { retryAfterSeconds } from "../usage/guard.js";
 import {
   buildAnkiDeck,
   countLearningWords,
@@ -268,6 +275,42 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       if (book) await triggerAiDefinitions(request.log, book, transitions);
     }
     return { ok: true, count: items.length };
+  });
+
+  // The context-free AI definition for a word on its own — what the library-wide modal
+  // offers, where no single book is in context. Mirrors the book route's contract:
+  // 202 + pending, 409 when one already exists, 503 unconfigured, advisory 429.
+  app.post("/words/:lemma/ai-definition", async (request, reply) => {
+    const { lemma } = request.params as { lemma: string };
+    const q = request.query as Record<string, string | undefined>;
+    const language = q.language ?? DEFAULT_LANGUAGE;
+    const key = decodeURIComponent(lemma).trim().toLowerCase();
+    if (key.length < 2) {
+      reply.code(400);
+      return { error: "A `lemma` must be at least 2 characters" };
+    }
+    if (!env.OPENROUTER_API_KEY) {
+      reply.code(503);
+      return { error: "AI definitions are not configured" };
+    }
+
+    const usage = await peek(request.user!.id, AI_GENERAL_DEFINITION_SLUG);
+    if (!usage.allowed) {
+      const retryAfter = retryAfterSeconds(usage.windows);
+      reply.header("Retry-After", String(retryAfter));
+      reply.code(429);
+      return { error: "Usage limit reached", slug: AI_GENERAL_DEFINITION_SLUG, retryAfter };
+    }
+
+    const result = await requestGeneralAiDefinition(language, key, request.user!.id, {
+      retryFailed: true,
+    });
+    if (result === "done") {
+      reply.code(409);
+      return { error: "AI definition already generated" };
+    }
+    reply.code(202);
+    return { aiDefinition: { status: "pending" } };
   });
 
   app.delete("/words/:lemma", async (request) => {

@@ -5,6 +5,10 @@ import { env } from "../env.js";
 import { db } from "../db/client.js";
 import { processBook } from "./processBook.js";
 import { processAiDefinition, type AiDefinitionJob } from "./processAiDefinition.js";
+import {
+  processGeneralAiDefinition,
+  type GeneralAiDefinitionJob,
+} from "./processGeneralAiDefinition.js";
 import { chatJson } from "../ai/openrouter.js";
 
 /** The queue that runs ebook parsing + enrichment off the request path. */
@@ -13,6 +17,9 @@ export const PROCESS_BOOK_QUEUE = "process-book";
 /** The queue that generates AI contextual definitions via OpenRouter (spec 10/13). */
 export const AI_DEFINITION_QUEUE = "ai-definition";
 
+/** The queue that generates context-free AI definitions (no book in context). */
+export const AI_WORD_DEFINITION_QUEUE = "ai-word-definition";
+
 /** Daily prune of the usage ledger so `feature_usage_events` stays bounded. */
 export const PRUNE_USAGE_QUEUE = "prune-usage-events";
 
@@ -20,7 +27,7 @@ export interface ProcessBookJob {
   bookId: string;
 }
 
-export type { AiDefinitionJob };
+export type { AiDefinitionJob, GeneralAiDefinitionJob };
 
 let boss: PgBoss | null = null;
 
@@ -48,6 +55,17 @@ export async function startQueue(logger: FastifyBaseLogger): Promise<void> {
       await processAiDefinition(job.data, logger, {
         chatJson,
         requeue: (payload, opts) => getBoss().send(AI_DEFINITION_QUEUE, payload, opts),
+      });
+    }
+  });
+
+  // Context-free AI definitions (the library-wide word modal). Same injection shape.
+  await boss.createQueue(AI_WORD_DEFINITION_QUEUE);
+  await boss.work<GeneralAiDefinitionJob>(AI_WORD_DEFINITION_QUEUE, async (jobs) => {
+    for (const job of jobs) {
+      await processGeneralAiDefinition(job.data, logger, {
+        chatJson,
+        requeue: (payload, opts) => getBoss().send(AI_WORD_DEFINITION_QUEUE, payload, opts),
       });
     }
   });

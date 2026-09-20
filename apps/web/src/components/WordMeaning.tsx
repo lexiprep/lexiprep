@@ -5,6 +5,7 @@ import {
   addWordNote,
   deleteWordNote,
   updateWordNote,
+  type DefinitionStatus,
   type WordNoteItem,
   type WordSense,
 } from "../lib/api";
@@ -55,6 +56,7 @@ export function WordMeaning({
   bookId,
   word,
   definition,
+  definitionStatus,
   notes,
   aiSenses,
   bookScoped,
@@ -67,9 +69,11 @@ export function WordMeaning({
   /** The lemma the definitions key on. */
   word: string;
   definition: WordSense[] | null;
+  /** `unavailable` = the lookup failed; saying "no definition found" would be a lie. */
+  definitionStatus?: DefinitionStatus;
   /** The user's own definitions for this word in this book. */
   notes: WordNoteItem[];
-  /** AI contextual senses for this book (when generated), or null. */
+  /** The AI senses in scope — contextual inside a book, the word's own outside one. */
   aiSenses?: WordSense[] | null;
   /** A specific book is selected → user/AI definitions override the dictionary. */
   bookScoped?: boolean;
@@ -224,24 +228,37 @@ export function WordMeaning({
     );
   }
 
-  // Book-scoped + an AI definition → it replaces the dictionary for this book.
-  if (bookScoped && aiSenses && aiSenses.length > 0) {
+  // An AI definition replaces the dictionary: the book's contextual one inside a book,
+  // the word's own meanings in a library-wide view. Both are 1-3 short learner phrases,
+  // which read better than the dictionary's longer list either way.
+  if (aiSenses && aiSenses.length > 0) {
     return (
       <div className="word-meaning">
         <div className="wm-block">
           <div className="wm-head">
             <span>
-              AI definition <span className="ai-badge">AI</span>
+              {bookScoped ? "AI definition" : "AI meanings"}{" "}
+              <span className="ai-badge">AI</span>
             </span>
           </div>
           {sensesList(aiSenses)}
-          <p className="muted small">AI-generated from this book’s context — may be imprecise.</p>
+          <p className="muted small">
+            {bookScoped
+              ? "AI-generated from this book’s context — may be imprecise."
+              : "AI-generated, without book context — may be imprecise."}
+          </p>
         </div>
-        {canNote && (
-          <button className="wm-add" onClick={startAdd}>
-            + Add your own definition
-          </button>
-        )}
+        {/* Inside a book the user's own definition outranks this block entirely (handled
+            above), so only the add button belongs here. Outside one, their notes are an
+            addition to the meanings and must still be listed. */}
+        {canNote &&
+          (!bookScoped && (localNotes.length > 0 || editingId === "new") ? (
+            notesBlock(localNotes.length > 1 ? "Your notes" : "Your note")
+          ) : (
+            <button className="wm-add" onClick={startAdd}>
+              {bookScoped ? "+ Add your own definition" : "+ Add your own note"}
+            </button>
+          ))}
       </div>
     );
   }
@@ -256,6 +273,11 @@ export function WordMeaning({
           <p className="muted small">Loading…</p>
         ) : definition && definition.length > 0 ? (
           sensesList(maxSenses != null ? definition.slice(0, maxSenses) : definition)
+        ) : definitionStatus === "unavailable" ? (
+          <p className="muted small">
+            The dictionary couldn’t be reached just now — this word may well have a
+            definition. Try again in a moment.
+          </p>
         ) : (
           <p className="muted small">No definition found for this word.</p>
         )}

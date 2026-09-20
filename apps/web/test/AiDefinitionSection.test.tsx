@@ -8,6 +8,7 @@ import type { AiDefinition } from "../src/lib/api";
 
 vi.mock("../src/lib/api", () => ({
   generateAiDefinition: vi.fn(),
+  generateGeneralAiDefinition: vi.fn(),
   checkUsage: vi.fn(),
   ApiError: class ApiError extends Error {
     constructor(
@@ -48,6 +49,9 @@ beforeEach(() => {
   vi.mocked(api.generateAiDefinition).mockResolvedValue({
     aiDefinition: { status: "pending", senses: null, error: null },
   });
+  vi.mocked(api.generateGeneralAiDefinition).mockResolvedValue({
+    aiDefinition: { status: "pending", senses: null, error: null },
+  });
 });
 
 describe("AiDefinitionSection", () => {
@@ -77,6 +81,29 @@ describe("AiDefinitionSection", () => {
     );
   });
 
+  it("switches to generating on click, without waiting for a refetch", async () => {
+    // The server's `pending` only arrives with the next word-detail fetch, and that
+    // request can take seconds (it may be blocked on the dictionary API). The button
+    // must not stay live in the meantime — that invites a second click on a request
+    // that is already running.
+    renderSection({ aiDefinition: null });
+    fireEvent.click(screen.getByRole("button", { name: /AI definition/ }));
+    await waitFor(() =>
+      expect(screen.getByText(/Generating from this book/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("offers the button again when the request fails", async () => {
+    vi.mocked(api.generateAiDefinition).mockRejectedValueOnce(new Error("network down"));
+    renderSection({ aiDefinition: null });
+    fireEvent.click(screen.getByRole("button", { name: /AI definition/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /AI definition/ })).toBeEnabled(),
+    );
+    expect(screen.queryByText(/Generating from this book/)).not.toBeInTheDocument();
+  });
+
   it("offers a retry only for a failed generation", () => {
     renderSection({
       aiDefinition: { status: "failed", senses: null, error: "model exploded" },
@@ -90,8 +117,15 @@ describe("AiDefinitionSection", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("offers no button outside a book context", () => {
-    const { container } = renderSection({ aiDefinition: null, bookScoped: false });
-    expect(container).toBeEmptyDOMElement();
+  it("outside a book, offers the context-free generation instead", async () => {
+    // No book means no sentences to define the word *in* — but the word still has its
+    // own meanings, and that generation is what the library-wide modal offers.
+    renderSection({ aiDefinition: null, bookScoped: false });
+    fireEvent.click(screen.getByRole("button", { name: /AI meanings/ }));
+    await waitFor(() =>
+      expect(api.generateGeneralAiDefinition).toHaveBeenCalledWith("whale", "en"),
+    );
+    expect(api.generateAiDefinition).not.toHaveBeenCalled();
+    expect(screen.getByText(/Generating the word/)).toBeInTheDocument();
   });
 });

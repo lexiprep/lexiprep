@@ -148,6 +148,30 @@ push a `vX.Y.Z` tag → the release workflow publishes to npm via OIDC; then bum
   with a book filter on — `vocabScope` joins a second unscoped rollup only in that case, and
   rows carry `totalCount` beside the in-view `count`. `getWordDetail` returns `library`
   (total, book count, per-book breakdown), shown in the word modal.
+- **Context-free AI meanings + word-modal fixes** done: a second AI pipeline for a word
+  with **no book in context** — `ai_word_definitions(language, lemma)` (no book FK, so it
+  outlives every book), its own queue `ai-word-definition`, its own prompt (ordered by how
+  common a meaning is, no book/examples) and its own metered slug
+  `ai-word-definition-general` (drizzle `0005`, 10/min + 120/hour). Senses land in
+  `word_senses` with a **null `bookId` + `ai = true`**; the two dictionary lookups gained
+  `ai = false` so AI senses can never be served as WordNet/Wiktionary. Rows are global —
+  the first requester pays, everyone reuses. `POST /api/words/:lemma/ai-definition`;
+  `getWordDetail` returns `generalAiDefinition` beside the book's `aiDefinition`, and the
+  modal picks by scope (a library-wide modal shows "AI meanings", which replace the
+  dictionary as the book one already does; a book modal is unchanged).
+  Fixed alongside: the Free Dictionary fallback ran **inline in the word detail with no
+  timeout**, so a slow upstream (measured at ~20s per word, answering 522) hung the whole
+  modal on every open — a transient failure caches nothing, so it never stopped repeating.
+  It now aborts at `FREEDICT_TIMEOUT_MS` (3s), and the detail carries `definitionStatus`
+  (`ok`/`absent`/`unavailable`) so a failed lookup no longer renders as "no definition
+  found for this word". The AI button also flips to "generating" on click instead of
+  waiting for that refetch, which is why it stayed clickable and could be fired twice.
+- **Mobile vocabulary fixes** done: the words table's header cells carried their own
+  horizontal padding while the body row carried it on the row, so every header label sat
+  14px right of its column (and the last was clipped) — the row owns it now, on both.
+  A long book title also widened the toolbar past the viewport and scrolled the page (a
+  native select sizes to its widest option and a flex item won't shrink below that);
+  `.toolbar .ctl` now shrinks instead.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

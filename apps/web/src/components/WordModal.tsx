@@ -75,7 +75,12 @@ export function WordModal({
     queryKey: ["word", bookId, word],
     queryFn: () => getWordDetail(bookId, word),
     // Poll while an AI definition is generating (same pattern as book processing).
-    refetchInterval: (q) => (q.state.data?.aiDefinition?.status === "pending" ? 1500 : false),
+    // Poll while either generation is running — which one matters depends on the scope.
+    refetchInterval: (q) =>
+      q.state.data?.aiDefinition?.status === "pending" ||
+      q.state.data?.generalAiDefinition?.status === "pending"
+        ? 1500
+        : false,
   });
 
   // A status change touches this word's own detail, the book header counts, and the
@@ -93,6 +98,9 @@ export function WordModal({
   const refreshDetail = () => qc.invalidateQueries({ queryKey: ["word", bookId, word] });
 
   const d = detail.data;
+  // Inside a book, the contextual definition is the relevant one; outside any book it's
+  // the word's own, book-independent meanings.
+  const scopedAi = (bookScoped ? d?.aiDefinition : d?.generalAiDefinition) ?? null;
 
   // Status shown on the buttons. Source of truth is the server (`d.status`), falling back
   // to the row data while the detail loads. `pending` is an optimistic override applied the
@@ -205,8 +213,9 @@ export function WordModal({
             bookId={bookId}
             word={word}
             definition={d?.definition ?? null}
+            definitionStatus={d?.definitionStatus}
             notes={d?.notes ?? []}
-            aiSenses={d?.aiDefinition?.status === "done" ? d.aiDefinition.senses : null}
+            aiSenses={scopedAi?.status === "done" ? scopedAi.senses : null}
             bookScoped={bookScoped}
             loading={detail.isLoading}
             onNotesChanged={refreshDetail}
@@ -219,7 +228,8 @@ export function WordModal({
           <AiDefinitionSection
             bookId={bookId}
             word={word}
-            aiDefinition={d.aiDefinition}
+            language={language}
+            aiDefinition={scopedAi}
             enabled={d.aiDefinitionEnabled}
             bookScoped={bookScoped}
           />

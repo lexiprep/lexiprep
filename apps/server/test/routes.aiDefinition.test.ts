@@ -17,6 +17,7 @@ const { sendSpy } = vi.hoisted(() => ({ sendSpy: vi.fn() }));
 vi.mock("../src/queue/boss.js", () => ({
   PROCESS_BOOK_QUEUE: "process-book",
   AI_DEFINITION_QUEUE: "ai-definition",
+  AI_WORD_DEFINITION_QUEUE: "ai-word-definition",
   PRUNE_USAGE_QUEUE: "prune-usage-events",
   getBoss: () => ({ send: sendSpy }),
   startQueue: vi.fn(),
