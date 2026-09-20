@@ -892,6 +892,16 @@ table.words td.center {
   .toolbar {
     gap: 10px 14px;
   }
+  /* A long book title must never widen the page: a native select sizes to its widest
+     option, and a flex item won't shrink below its content unless told it may. */
+  .toolbar .ctl {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .toolbar .ctl select {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
   .hint {
     display: none;
   }
@@ -924,8 +934,13 @@ table.words td.center {
     column-gap: 12px;
     row-gap: 10px;
   }
-  table.words thead th {
+  table.words thead tr {
     padding: 9px 14px;
+  }
+  /* The row now owns the horizontal padding (as tbody's does), so header labels line
+     up with the cells below them instead of sitting a padding-width to the right. */
+  table.words thead th {
+    padding: 0;
   }
   table.words tbody tr {
     padding: 11px 14px;
