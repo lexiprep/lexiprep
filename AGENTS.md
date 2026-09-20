@@ -60,6 +60,21 @@ without Docker also works: `pnpm install && pnpm -r dev`. Releasing core: bump i
 push a `vX.Y.Z` tag → the release workflow publishes to npm via OIDC; then bump the app's
 `@lexiprep/core` range.
 
+### Deploying
+
+Production lives at `/srv/lexiprep` on the server and is deployed with `make deploy` there:
+`git pull --ff-only`, rebuild the images, recreate `server`/`web`/`backup`, then `make
+migrate`. Pushing to `master` runs that same command over SSH
+(`.github/workflows/deploy.yml`) — the workflow does nothing else, and production secrets
+stay in the `.env` on the box.
+
+**A deploy never installs dependencies.** `node_modules` lives in the persisted `nm_root`,
+`nm_server` and `nm_web` volumes, and only `make install` repopulates them. So whenever a
+change touches `package.json` or `pnpm-lock.yaml` — adding, removing or bumping anything,
+including the `@lexiprep/core` range — say so explicitly and tell Valeriu that `make
+install` has to be run manually on the production box, or the deploy will ship the new code
+against the old `node_modules`. Never run `make install` against production on your own.
+
 ## Status
 
 - Phase 1 (core extraction) done — separate `lexiprep-core` repo (`@lexiprep/core` + CLI,

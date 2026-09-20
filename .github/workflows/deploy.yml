@@ -1,0 +1,56 @@
+# Deploy master to the production box.
+#
+# The whole deploy lives in the repo's Makefile — this workflow just runs `make deploy`
+# over SSH at /srv/lexiprep, which pulls, rebuilds, recreates server/web/backup and
+# migrates. Nothing is built or installed here.
+#
+# It deliberately does NOT run `make install`: node_modules lives in the persisted
+# nm_root/nm_server/nm_web volumes, and repopulating them after a lockfile change is a
+# manual step on the box (see AGENTS.md → Deploying).
+#
+# Secrets: SSH_PRIVATE_KEY, SSH_USER, SSH_HOST. Optional: DEPLOY_PATH, HEALTH_CHECK_URL.
+# Production .env stays on the server — no app secrets are injected from here.
+
+name: Deploy to production
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Run make deploy on the server
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/srv/lexiprep' }}
+        run: |
+          ssh -o StrictHostKeyChecking=no "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+            "set -e; cd '$DEPLOY_PATH' && make deploy"
+
+      - name: Health check
+        env:
+          HEALTH_URL: ${{ secrets.HEALTH_CHECK_URL || format('http://{0}:8080/health', secrets.SSH_HOST) }}
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS "$HEALTH_URL" > /dev/null; then
+              echo "Health check passed: $HEALTH_URL"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed: $HEALTH_URL"
+          exit 1
