@@ -21,6 +21,7 @@ import { LevelRange } from "../components/LevelRange";
 import { CountRange } from "../components/CountRange";
 import { WordModal } from "../components/WordModal";
 import { ExportModal } from "../components/ExportModal";
+import { FilterSheet } from "../components/FilterSheet";
 
 const LANG = "en";
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -216,13 +217,22 @@ export function LearningPage() {
   // Spelled out in the stats line so a short list is never a mystery.
   const countLabel =
     minCount && maxCount
-      ? `${minCount}–${maxCount}× across your books`
+      ? `${minCount}–${maxCount}×`
       : minCount
-        ? `${minCount}× or more across your books`
+        ? `${minCount}× or more`
         : maxCount
-          ? `${maxCount}× or fewer across your books`
+          ? `≤${maxCount}×`
           : "";
   const bookName = bookId ? readyBooks.find((b) => b.id === bookId)?.title : null;
+  const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label;
+  const appliedFilters = [
+    bookName,
+    levelLabel && `Level ${levelLabel}`,
+    countLabel,
+    search && `“${search}”`,
+    sort !== "count:desc" && sortLabel && `Sort ${sortLabel}`,
+    pageSize !== 50 && `${pageSize} per page`,
+  ].filter((label): label is string => Boolean(label));
 
   return (
     <section>
@@ -230,7 +240,7 @@ export function LearningPage() {
         <h2>Vocabulary</h2>
         {status === "learning" && (
           <button
-            className="btn primary push-right"
+            className="btn slim push-right export-anki"
             onClick={() => setShowExport(true)}
             disabled={!stats || stats.total === 0}
             title="Export your Learning words as an Anki deck"
@@ -258,7 +268,7 @@ export function LearningPage() {
         ))}
       </div>
 
-      <div className="toolbar">
+      <FilterSheet applied={appliedFilters}>
         <label className="ctl">
           Book
           <select
@@ -326,31 +336,30 @@ export function LearningPage() {
         <span className="grow" />
 
         <label className="ctl">
-          Show
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              resetView();
-            }}
-          >
-            {PAGE_SIZES.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          per page
+          <span className="ctl-name">Show</span>
+          <span className="ctl-field">
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                resetView();
+              }}
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <span>per page</span>
+          </span>
         </label>
-      </div>
+      </FilterSheet>
 
       {stats && (
         <p className="stats-line muted small">
-          <strong>{stats.filtered.toLocaleString()}</strong>{" "}
-          {levelLabel ? `${levelLabel} ` : ""}
-          {status} word{stats.filtered === 1 ? "" : "s"}
-          {bookName ? ` in “${bookName}”` : ""}
-          {countLabel ? ` · ${countLabel}` : ""}
+          <strong>{stats.filtered.toLocaleString()}</strong> {status} word
+          {stats.filtered === 1 ? "" : "s"}
           {stats.filtered !== stats.total &&
             ` · ${stats.total.toLocaleString()} ${status} total`}
         </p>

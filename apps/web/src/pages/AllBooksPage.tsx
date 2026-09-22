@@ -18,6 +18,7 @@ import { usePersistentState } from "../lib/usePersistentState";
 import { LevelBadge, StatusBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
+import { FilterSheet } from "../components/FilterSheet";
 
 const LANG = "en";
 const PAGE_SIZES = [10, 20, 50, 100];
@@ -156,6 +157,12 @@ export function AllBooksPage() {
   );
 
   const levelLabel = levelRangeLabel(minLevel, maxLevel);
+  const appliedFilters = [
+    view && (view === "all" ? "All words" : view.charAt(0).toUpperCase() + view.slice(1)),
+    levelLabel && `Level ${levelLabel}`,
+    search && `“${search}”`,
+    pageSize !== 50 && `${pageSize} per page`,
+  ].filter((label): label is string => Boolean(label));
 
   return (
     <section>
@@ -176,23 +183,25 @@ export function AllBooksPage() {
         </p>
       </div>
 
-      <div className="toolbar">
+      <FilterSheet applied={appliedFilters}>
         <label className="ctl">
-          Show
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              resetView();
-            }}
-          >
-            {PAGE_SIZES.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          per page
+          <span className="ctl-name">Show</span>
+          <span className="ctl-field">
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                resetView();
+              }}
+            >
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+            <span>per page</span>
+          </span>
         </label>
 
         <LevelRange
@@ -230,14 +239,12 @@ export function AllBooksPage() {
           onChange={(e) => setSearchInput(e.target.value)}
           aria-label="Search words"
         />
-      </div>
+      </FilterSheet>
 
       {stats && (
         <p className="stats-line muted small">
-          <strong>{stats.filtered.toLocaleString()}</strong>
-          {levelLabel ? ` ${levelLabel} ` : " "}
-          {view === "" ? "words to review" : view === "all" ? "words" : `${view} words`}
-          {search ? ` matching “${search}”` : ""}
+          <strong>{stats.filtered.toLocaleString()}</strong>{" "}
+          {view === "" ? "words to review" : "words"}
           {/* Only worth repeating the untriaged total once a filter has narrowed it. */}
           {view === "" && stats.filtered !== stats.remaining
             ? ` · ${stats.remaining.toLocaleString()} to review in all`

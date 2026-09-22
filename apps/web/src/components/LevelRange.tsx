@@ -21,36 +21,38 @@ export function LevelRange({
 }) {
   return (
     <span className="ctl level-range">
-      Level
-      <select
-        value={from}
-        aria-label="Level from"
-        title="Lowest level to include (— = unleveled: names / rare words)"
-        onChange={(e) => onChange({ from: e.target.value, to })}
-      >
-        <option value="">Any</option>
-        <option value={UNLEVELED.value}>{UNLEVELED.label}</option>
-        {CEFR_LEVELS.map((l) => (
-          <option key={l} value={l}>
-            {l}
-          </option>
-        ))}
-      </select>
-      <span className="range-dash">–</span>
-      <select
-        value={to}
-        aria-label="Level to"
-        title="Highest level to include (— = unleveled: names / rare words)"
-        onChange={(e) => onChange({ from, to: e.target.value })}
-      >
-        <option value="">Any</option>
-        <option value={UNLEVELED.value}>{UNLEVELED.label}</option>
-        {CEFR_LEVELS.map((l) => (
-          <option key={l} value={l}>
-            {l}
-          </option>
-        ))}
-      </select>
+      <span className="ctl-name">Level</span>
+      <span className="level-range-bounds">
+        <select
+          value={from}
+          aria-label="Level from"
+          title="Lowest level to include (— = unleveled: names / rare words)"
+          onChange={(e) => onChange({ from: e.target.value, to })}
+        >
+          <option value="">Any</option>
+          <option value={UNLEVELED.value}>{UNLEVELED.label}</option>
+          {CEFR_LEVELS.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <span className="range-dash">–</span>
+        <select
+          value={to}
+          aria-label="Level to"
+          title="Highest level to include (— = unleveled: names / rare words)"
+          onChange={(e) => onChange({ from, to: e.target.value })}
+        >
+          <option value="">Any</option>
+          <option value={UNLEVELED.value}>{UNLEVELED.label}</option>
+          {CEFR_LEVELS.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </select>
+      </span>
     </span>
   );
 }

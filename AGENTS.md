@@ -40,6 +40,13 @@ Cursor CLI is the primary agent for this repository; Claude Code reads the same 
   hand-roll a `.modal-overlay` backdrop. It owns the backdrop, click-to-close, and the body
   scroll lock (`useBodyScrollLock`), so the page behind an open modal can never scroll. This
   is a hard rule for every current and future modal.
+- **Phone word-list filters open in a modal, and the page shows what is on.** At
+  ≤640px the book page, vocabulary, and all-books list do not render an inline filter
+  toolbar. A **Filters** button opens them through `FilterSheet`
+  (`apps/web/src/components/FilterSheet.tsx`), which uses `<ModalOverlay>`. Every filter
+  that is not at its default is listed under that button — not beside it — so a
+  narrowed list never looks unfiltered. Desktop keeps the inline toolbar. New word
+  lists follow the same split — do not add another inline mobile filter bar.
 - **Local DB access goes through the `lexiprep-db` MCP server** (`mcp__lexiprep-db__*` —
   `pg_execute_query` for reads, `pg_execute_sql`/`pg_execute_mutation` for writes), never
   `docker exec … psql` or a host `psql`. This is the standard way to inspect or modify the

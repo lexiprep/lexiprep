@@ -48,7 +48,7 @@ export function CountRange({
 
   return (
     <span className="ctl count-range">
-      Count
+      <span className="ctl-name">Count</span>
       <button
         type="button"
         className="btn ghost slim count-range-btn"

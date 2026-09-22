@@ -30,6 +30,7 @@ import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CardMode } from "../components/CardMode";
+import { FilterSheet } from "../components/FilterSheet";
 
 const PAGE_SIZES = [10, 20, 50, 100];
 
@@ -127,6 +128,12 @@ export function BookPage() {
   );
   const batchDone = rows.length > 0 && visibleRows.length === 0;
   const toReview = view === ""; // the default untriaged view
+  const appliedFilters = [
+    !toReview && (view === "all" ? "All words" : view.charAt(0).toUpperCase() + view.slice(1)),
+    levelLabel && `Level ${levelLabel}`,
+    search && `“${search}”`,
+    pageSize !== 50 && `${pageSize} per batch`,
+  ].filter((label): label is string => Boolean(label));
 
   const markStatus = useMutation({
     mutationFn: (v: { word: string; status: UserWordStatus }) =>
@@ -345,23 +352,25 @@ export function BookPage() {
           )}
 
           {ready && (
-            <div className="toolbar">
+            <FilterSheet applied={appliedFilters}>
               <label className="ctl">
-                Show
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    setPageSize(Number(e.target.value));
-                    resetView();
-                  }}
-                >
-                  {PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-                per batch
+                <span className="ctl-name">Show</span>
+                <span className="ctl-field">
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      resetView();
+                    }}
+                  >
+                    {PAGE_SIZES.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                  <span>per batch</span>
+                </span>
               </label>
 
               <LevelRange
@@ -402,7 +411,7 @@ export function BookPage() {
 
               <span className="grow" />
               <span className="muted small hint">Shift-click headers to multi-sort</span>
-            </div>
+            </FilterSheet>
           )}
 
           {ready && (
@@ -410,12 +419,9 @@ export function BookPage() {
               {stats && (
                 <p className="stats-line muted small">
                   <strong>{visibleRows.length.toLocaleString()}</strong>
-                  {levelLabel ? ` ${levelLabel} ` : " "}
-                  {view === "" ? "words" : view === "all" ? "words (all)" : `${view} words`}
-                  {" left in this batch"}
-                  {/* With a filter active, the across-book count that matches it. Worded as
-                      "match your filter" (not "to review") so it doesn't collide with the
-                      header's unfiltered "to review" total, which stays fixed while filtering. */}
+                  {" words left in this batch"}
+                  {/* The filter itself is named on the pills (or in the toolbar). This
+                      count is only here so a short batch isn't mistaken for the whole book. */}
                   {levelLabel || search ? (
                     <>
                       {" · "}
