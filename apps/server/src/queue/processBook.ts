@@ -3,7 +3,8 @@ import JSZip from "jszip";
 import { readEpub, readPdf, analyzeBook, ENGLISH_STOPWORDS } from "@lexiprep/core";
 import type { FastifyBaseLogger } from "fastify";
 import { db } from "../db/client.js";
-import { books, bookFiles, bookWords } from "../db/schema.js";
+import { books, bookWords } from "../db/schema.js";
+import { loadBookFile } from "../storage/bookFiles.js";
 
 const INSERT_CHUNK = 1000;
 
@@ -77,11 +78,7 @@ export async function processBook(
   bookId: string,
   logger: FastifyBaseLogger,
 ): Promise<void> {
-  const [file] = await db
-    .select()
-    .from(bookFiles)
-    .where(eq(bookFiles.bookId, bookId))
-    .limit(1);
+  const file = await loadBookFile(bookId, logger);
   if (!file) {
     // No stored file (e.g. a reprocess of a seed/demo book that never had one). Fail
     // cleanly so the status doesn't hang on "processing" forever.

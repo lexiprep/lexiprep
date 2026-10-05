@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { addBookWords, createBook } from "./helpers/db.js";
+import { MemoryObjectStore } from "./helpers/objectStore.js";
+import { setObjectStoreForTests } from "../src/storage/bookFiles.js";
 
 let app: FastifyInstance;
 
@@ -434,6 +436,59 @@ describe("GET /api/words/export", () => {
     expect(res.headers["content-type"]).toContain("text/tab-separated-values");
     expect(res.body).toContain("#separator:tab");
     expect(res.body).toContain("ocean");
+  });
+});
+
+describe("direct upload routes", () => {
+  afterEach(() => setObjectStoreForTests(undefined));
+  const start = (payload: object) =>
+    app.inject({
+      method: "POST",
+      url: "/api/books/uploads",
+      headers: { cookie: alice.cookie, "content-type": "application/json" },
+      payload,
+    });
+
+  it("reports that large uploads are off without object storage", async () => {
+    setObjectStoreForTests(null);
+    const config = await app.inject({
+      method: "GET",
+      url: "/api/books/upload-config",
+      headers: { cookie: alice.cookie },
+    });
+    expect(config.json()).toMatchObject({ maxBytes: 50 * 1024 * 1024, direct: { enabled: false } });
+    expect((await start({ filename: "big.pdf", sizeBytes: 10 })).statusCode).toBe(503);
+  });
+
+  it("hands out a signed URL and reserves the book", async () => {
+    setObjectStoreForTests(new MemoryObjectStore());
+    const config = await app.inject({
+      method: "GET",
+      url: "/api/books/upload-config",
+      headers: { cookie: alice.cookie },
+    });
+    expect(config.json()).toMatchObject({ direct: { enabled: true } });
+
+    const res = await start({ filename: "big.pdf", sizeBytes: 10 });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as { book: { id: string; status: string }; uploadUrl: string };
+    expect(body.book.status).toBe("uploading");
+    expect(body.uploadUrl).toContain(`books/${body.book.id}.pdf`);
+
+    // Nothing was PUT, so it cannot be completed.
+    const complete = await app.inject({
+      method: "POST",
+      url: `/api/books/${body.book.id}/uploads/complete`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(complete.statusCode).toBe(409);
+  });
+
+  it("rejects a wrong type, a missing size and a file over the cap", async () => {
+    setObjectStoreForTests(new MemoryObjectStore());
+    expect((await start({ filename: "notes.txt", sizeBytes: 10 })).statusCode).toBe(415);
+    expect((await start({ filename: "big.pdf" })).statusCode).toBe(400);
+    expect((await start({ filename: "big.pdf", sizeBytes: 600 * 1024 * 1024 })).statusCode).toBe(413);
   });
 });
 

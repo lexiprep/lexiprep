@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   and,
   asc,
@@ -38,6 +39,12 @@ import {
   hasDefinitionFetch,
 } from "../dictionary/service.js";
 import { env } from "../env.js";
+import {
+  deleteBookObject,
+  getObjectStore,
+  objectKeyFor,
+  storeBookFile,
+} from "../storage/bookFiles.js";
 
 export interface UploadInput {
   filename: string;
@@ -49,29 +56,122 @@ function titleFromFilename(filename: string): string {
   return filename.replace(/\.(epub|pdf)$/i, "").trim() || filename;
 }
 
-/** Persist an uploaded book + its bytes (one transaction). Status starts `uploaded`. */
+/**
+ * Persist an uploaded book and its file. The bytes go to the bucket when one is
+ * configured, else into `book_files.data`; either way the rows are one transaction, and
+ * an object written for a book that then fails to insert is removed again. Status starts
+ * `uploaded`.
+ */
 export async function createBook(userId: string, input: UploadInput): Promise<Book> {
-  return db.transaction(async (tx) => {
-    const [book] = await tx
+  const id = randomUUID();
+  const stored = await storeBookFile(id, input);
+  try {
+    return await db.transaction(async (tx) => {
+      const [book] = await tx
+        .insert(books)
+        .values({
+          id,
+          userId,
+          title: titleFromFilename(input.filename),
+          sourceFilename: input.filename,
+          status: "uploaded",
+        })
+        .returning();
+      if (!book) throw new Error("Failed to create book");
+
+      await tx.insert(bookFiles).values({
+        bookId: book.id,
+        filename: input.filename,
+        mimeType: input.mimeType ?? null,
+        sizeBytes: input.data.length,
+        ...stored,
+      });
+      return book;
+    });
+  } catch (err) {
+    await deleteBookObject(stored.objectKey);
+    throw err;
+  }
+}
+
+/** How long a signed upload URL stays valid — room for a large file on a slow line. */
+const UPLOAD_URL_TTL_SECONDS = 3600;
+
+/**
+ * Start a direct browser-to-bucket upload (spec 14): create the book in status
+ * `uploading` with its object key reserved, and return a signed URL the browser PUTs the
+ * file to. Nothing is in the bucket yet — {@link completeDirectUpload} confirms it.
+ * Returns null when object storage isn't configured.
+ */
+export async function createDirectUpload(
+  userId: string,
+  input: { filename: string; mimeType: string | undefined; sizeBytes: number },
+): Promise<{ book: Book; uploadUrl: string } | null> {
+  const store = await getObjectStore();
+  if (!store) return null;
+  const id = randomUUID();
+  const objectKey = objectKeyFor(id, input.filename);
+  const book = await db.transaction(async (tx) => {
+    const [created] = await tx
       .insert(books)
       .values({
+        id,
         userId,
         title: titleFromFilename(input.filename),
         sourceFilename: input.filename,
-        status: "uploaded",
+        status: "uploading",
       })
       .returning();
-    if (!book) throw new Error("Failed to create book");
-
+    if (!created) throw new Error("Failed to create book");
     await tx.insert(bookFiles).values({
-      bookId: book.id,
+      bookId: id,
       filename: input.filename,
       mimeType: input.mimeType ?? null,
-      sizeBytes: input.data.length,
-      data: input.data,
+      sizeBytes: input.sizeBytes,
+      objectKey,
     });
-    return book;
+    return created;
   });
+  return { book, uploadUrl: await store.presignPut(objectKey, UPLOAD_URL_TTL_SECONDS) };
+}
+
+export type CompleteUploadResult =
+  | { ok: true; book: Book }
+  | { ok: false; reason: "not_found" | "not_uploading" | "missing" | "too_large" };
+
+/**
+ * Confirm a direct upload: check the object really is in the bucket and within the cap
+ * (the browser's own word for either is never trusted), record its true size and move
+ * the book to `uploaded` so it can be processed. An oversized object is removed together
+ * with its book.
+ */
+export async function completeDirectUpload(
+  userId: string,
+  bookId: string,
+  maxBytes: number,
+): Promise<CompleteUploadResult> {
+  const book = await getBook(userId, bookId);
+  if (!book) return { ok: false, reason: "not_found" };
+  if (book.status !== "uploading") return { ok: false, reason: "not_uploading" };
+  const [file] = await db
+    .select({ objectKey: bookFiles.objectKey })
+    .from(bookFiles)
+    .where(eq(bookFiles.bookId, bookId))
+    .limit(1);
+  const store = await getObjectStore();
+  const head = file?.objectKey && store ? await store.head(file.objectKey) : null;
+  if (!head || head.size === 0) return { ok: false, reason: "missing" };
+  if (head.size > maxBytes) {
+    await deleteBook(userId, bookId);
+    return { ok: false, reason: "too_large" };
+  }
+  await db.update(bookFiles).set({ sizeBytes: head.size }).where(eq(bookFiles.bookId, bookId));
+  const [updated] = await db
+    .update(books)
+    .set({ status: "uploaded" })
+    .where(and(eq(books.id, bookId), eq(books.userId, userId), eq(books.status, "uploading")))
+    .returning();
+  return updated ? { ok: true, book: updated } : { ok: false, reason: "not_uploading" };
 }
 
 /**
@@ -101,16 +201,26 @@ export async function reprocessBook(
  * word list, per-book notes and AI senses (all FKs are `on delete cascade`). The user's
  * vocabulary (`user_words`) is cross-book and is deliberately kept. Works in any status,
  * including a book stuck at `uploaded`/`processing` (a queued job for it finds no file and
- * exits). Scoped by `userId` and returns false for a book the user doesn't own, so the
+ * exits). A file kept in the bucket is removed with it. Scoped by `userId` and returns false for a book the user doesn't own, so the
  * route 404s without leaking existence.
  */
 export async function deleteBook(userId: string, bookId: string): Promise<boolean> {
   if (!UUID_RE.test(bookId)) return false;
+  // Read the key first — the cascade takes the `book_files` row with the book.
+  const [file] = await db
+    .select({ objectKey: bookFiles.objectKey })
+    .from(bookFiles)
+    .innerJoin(books, eq(books.id, bookFiles.bookId))
+    .where(and(eq(books.id, bookId), eq(books.userId, userId)))
+    .limit(1);
   const deleted = await db
     .delete(books)
     .where(and(eq(books.id, bookId), eq(books.userId, userId)))
     .returning({ id: books.id });
-  return deleted.length > 0;
+  if (deleted.length === 0) return false;
+  // Row first, object second: a failure here leaves an orphan, never a dangling key.
+  await deleteBookObject(file?.objectKey);
+  return true;
 }
 
 /** Editable bibliographic fields. `author`/`translator` may be cleared (empty -> null). */

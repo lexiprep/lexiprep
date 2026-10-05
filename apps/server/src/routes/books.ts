@@ -9,12 +9,15 @@ import {
 } from "../ai/definitionService.js";
 import { peek } from "../usage/service.js";
 import { retryAfterSeconds } from "../usage/guard.js";
+import { getObjectStore, UPLOAD_MAX_BYTES } from "../storage/bookFiles.js";
 import { db } from "../db/client.js";
 import { bookWords } from "../db/schema.js";
 import { and, eq, sql } from "drizzle-orm";
 import {
   addWordNote,
+  completeDirectUpload,
   createBook,
+  createDirectUpload,
   deleteBook,
   deleteWordNote,
   finishBookReview,
@@ -31,6 +34,8 @@ import {
   updateBook,
   updateWordNote,
 } from "../books/service.js";
+
+const mb = (bytes: number) => Math.floor(bytes / (1024 * 1024));
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -64,6 +69,83 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/books", async (request) => {
     return { books: await listBooks(request.user!.id) };
+  });
+
+  // What the upload button needs to know: the through-the-server limit, and whether a
+  // larger file can go straight to the bucket (spec 14).
+  app.get("/books/upload-config", async () => {
+    return {
+      maxBytes: UPLOAD_MAX_BYTES,
+      direct: {
+        enabled: (await getObjectStore().catch(() => null)) !== null,
+        maxBytes: env.BOOK_UPLOAD_MAX_BYTES,
+      },
+    };
+  });
+
+  // Start a direct browser-to-bucket upload: reserves the book and returns a signed URL
+  // to PUT the file to. The book stays `uploading` until .../uploads/complete confirms it.
+  app.post("/books/uploads", async (request, reply) => {
+    const body = (request.body ?? {}) as {
+      filename?: unknown;
+      sizeBytes?: unknown;
+      mimeType?: unknown;
+    };
+    const filename = typeof body.filename === "string" ? body.filename.trim() : "";
+    if (!/\.(epub|pdf)$/i.test(filename)) {
+      reply.code(415);
+      return { error: "Only .epub and .pdf files are supported" };
+    }
+    const sizeBytes = Number(body.sizeBytes);
+    if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) {
+      reply.code(400);
+      return { error: "`sizeBytes` is required" };
+    }
+    if (sizeBytes > env.BOOK_UPLOAD_MAX_BYTES) {
+      reply.code(413);
+      return { error: `File is too large (max ${mb(env.BOOK_UPLOAD_MAX_BYTES)} MB)` };
+    }
+    const started = await createDirectUpload(request.user!.id, {
+      filename,
+      mimeType: typeof body.mimeType === "string" ? body.mimeType : undefined,
+      sizeBytes,
+    });
+    if (!started) {
+      reply.code(503);
+      return { error: "Large uploads are not configured on this server" };
+    }
+    reply.code(201);
+    return started;
+  });
+
+  // Confirm a direct upload once the browser has finished the PUT, then process it.
+  app.post("/books/:id/uploads/complete", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const result = await completeDirectUpload(
+      request.user!.id,
+      id,
+      env.BOOK_UPLOAD_MAX_BYTES,
+    );
+    if (!result.ok) {
+      if (result.reason === "not_found") {
+        reply.code(404);
+        return { error: "Not found" };
+      }
+      if (result.reason === "too_large") {
+        reply.code(413);
+        return { error: `File is too large (max ${mb(env.BOOK_UPLOAD_MAX_BYTES)} MB)` };
+      }
+      reply.code(409);
+      return {
+        error:
+          result.reason === "missing"
+            ? "The file never arrived. Upload it again."
+            : "This upload was already completed",
+      };
+    }
+    await getBoss().send(PROCESS_BOOK_QUEUE, { bookId: result.book.id });
+    reply.code(202);
+    return { book: result.book };
   });
 
   // Re-extract an existing book with the latest engine (e.g. after a core release).

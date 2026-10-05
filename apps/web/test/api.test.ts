@@ -6,6 +6,7 @@ import {
   getVocabTimeseries,
   reviewBatch,
   clearWordStatus,
+  uploadBookDirect,
 } from "../src/lib/api";
 
 function mockFetch(body: unknown, init: { status?: number } = {}) {
@@ -101,5 +102,70 @@ describe("request() behavior", () => {
   it("resolves undefined on a 204 No Content", async () => {
     mockFetch(null, { status: 204 });
     await expect(clearWordStatus("ocean", "en", "learning")).resolves.toBeUndefined();
+  });
+});
+
+describe("uploadBookDirect", () => {
+  const file = new File(["%PDF-1.7 big"], "Atlas.pdf", { type: "application/pdf" });
+
+  /** A stand-in XMLHttpRequest that answers the storage PUT with `status`. */
+  function stubXhr(status: number) {
+    const sent: { url?: string; method?: string } = {};
+    class FakeXhr {
+      upload: { onprogress?: (e: unknown) => void } = {};
+      status = status;
+      onload?: () => void;
+      onerror?: () => void;
+      open(method: string, url: string) {
+        sent.method = method;
+        sent.url = url;
+      }
+      setRequestHeader() {}
+      send() {
+        this.upload.onprogress?.({ lengthComputable: true, loaded: 6, total: 12 });
+        this.onload?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    return sent;
+  }
+
+  const json = (body: unknown, status = 200) =>
+    new Response(status === 204 ? null : JSON.stringify(body), { status });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("reserves the book, sends the bytes to storage, then confirms", async () => {
+    const sent = stubXhr(200);
+    const f = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(json({ book: { id: "b1" }, uploadUrl: "https://bucket/k?sig" }, 201))
+      .mockResolvedValueOnce(json({ book: { id: "b1", status: "uploaded" } }, 202));
+    const progress: number[] = [];
+
+    const book = await uploadBookDirect(file, (p) => progress.push(p));
+
+    expect(book).toMatchObject({ id: "b1", status: "uploaded" });
+    expect(sent).toEqual({ method: "PUT", url: "https://bucket/k?sig" });
+    expect(progress).toEqual([0.5]);
+    expect(f.mock.calls[0]![0]).toBe("/api/books/uploads");
+    expect(JSON.parse(f.mock.calls[0]![1]!.body as string)).toMatchObject({
+      filename: "Atlas.pdf",
+      sizeBytes: file.size,
+    });
+    expect(f.mock.calls[1]![0]).toBe("/api/books/b1/uploads/complete");
+  });
+
+  it("removes the reserved book when storage refuses the bytes", async () => {
+    stubXhr(403);
+    const f = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(json({ book: { id: "b1" }, uploadUrl: "https://bucket/k?sig" }, 201))
+      .mockResolvedValueOnce(json(null, 204));
+
+    await expect(uploadBookDirect(file)).rejects.toThrow("Storage refused the upload (403)");
+
+    expect(f.mock.calls[1]![0]).toBe("/api/books/b1");
+    expect(f.mock.calls[1]![1]).toMatchObject({ method: "DELETE" });
   });
 });

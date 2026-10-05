@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import { UPLOAD_MAX_BYTES } from "./storage/bookFiles.js";
 import { env } from "./env.js";
 import { healthRoutes } from "./routes/health.js";
 import { demoRoutes } from "./routes/demo.js";
@@ -22,7 +23,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
 
   // credentials: true so Better Auth session cookies flow from the web origin.
   await app.register(cors, { origin: [env.WEB_ORIGIN], credentials: true });
-  await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024 } });
+  await app.register(multipart, { limits: { fileSize: UPLOAD_MAX_BYTES } });
 
   await app.register(authRoutes); // /api/auth/*
   await app.register(healthRoutes);

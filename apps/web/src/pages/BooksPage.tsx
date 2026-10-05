@@ -3,23 +3,31 @@ import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getLibraryWords,
+  getUploadConfig,
   listBooks,
   uploadBook,
+  uploadBookDirect,
   type Book,
   type BookStatus,
 } from "../lib/api";
 
 const STATUS_LABEL: Record<BookStatus, string> = {
+  uploading: "upload not finished",
   uploaded: "queued",
   processing: "processing",
   ready: "ready",
   failed: "failed",
 };
 
+const mb = (bytes: number) => Math.round(bytes / (1024 * 1024));
+
 export function BooksPage() {
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  // Fraction sent of a large file going straight to storage; null when none is.
+  const [progress, setProgress] = useState<number | null>(null);
+  const config = useQuery({ queryKey: ["upload-config"], queryFn: getUploadConfig });
 
   const books = useQuery({
     queryKey: ["books"],
@@ -40,9 +48,14 @@ export function BooksPage() {
   }
 
   const upload = useMutation({
-    mutationFn: uploadBook,
+    // Files the server accepts go through it; larger ones go straight to storage.
+    mutationFn: (file: File) =>
+      config.data && file.size > config.data.maxBytes
+        ? uploadBookDirect(file, setProgress)
+        : uploadBook(file),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["books"] }),
     onError: (e) => setError(e instanceof Error ? e.message : "Upload failed"),
+    onSettled: () => setProgress(null),
   });
 
   function onPick(file: File | undefined) {
@@ -53,8 +66,17 @@ export function BooksPage() {
       setError("Only .epub and .pdf files are supported");
       return;
     }
-    upload.mutate(file);
     if (fileInput.current) fileInput.current.value = "";
+    const c = config.data;
+    if (c && file.size > c.maxBytes) {
+      const limit = c.direct.enabled ? c.direct.maxBytes : c.maxBytes;
+      if (file.size > limit) {
+        setError(`That file is ${mb(file.size)} MB. The largest allowed is ${mb(limit)} MB.`);
+        return;
+      }
+      setProgress(0);
+    }
+    upload.mutate(file);
   }
 
   return (
@@ -74,7 +96,11 @@ export function BooksPage() {
           onClick={() => fileInput.current?.click()}
           disabled={upload.isPending}
         >
-          {upload.isPending ? "Uploading…" : "Upload book"}
+          {!upload.isPending
+            ? "Upload book"
+            : progress != null
+              ? `Uploading… ${Math.round(progress * 100)}%`
+              : "Uploading…"}
         </button>
       </div>
 
@@ -87,7 +113,11 @@ export function BooksPage() {
           {/* Always first: the whole library as one list, for picking the words that pay
               off across every book rather than in one of them. */}
           <AllBooksCard />
-          {books.data.map((b) => (
+          {books.data
+            // A large upload in progress in this tab has a reserved book already; it is
+            // not "unfinished" until the upload has actually stopped.
+            .filter((b) => !(upload.isPending && b.status === "uploading"))
+            .map((b) => (
             <BookCard
               key={b.id}
               book={b}
@@ -174,7 +204,12 @@ function BookCard({ book, showStatus }: { book: Book; showStatus: boolean }) {
             {book.reviewedAt && <span className="pill green">reviewed</span>}
           </>
         )}
-        {!ready && book.status !== "failed" && <span>Analyzing…</span>}
+        {book.status === "uploading" && (
+          <span>The file never finished uploading. Delete this book in its settings and upload it again.</span>
+        )}
+        {!ready && book.status !== "failed" && book.status !== "uploading" && (
+          <span>Analyzing…</span>
+        )}
       </div>
     </div>
   );
