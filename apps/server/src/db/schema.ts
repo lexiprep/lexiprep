@@ -42,7 +42,8 @@ export const books = pgTable("books", {
   /** EPUB dc:identifier, stored for reference (not a dedup key). */
   identifier: text("identifier"),
   sourceFilename: text("source_filename"),
-  /** uploaded | processing | ready | failed */
+  /** uploading | uploaded | processing | ready | failed (`uploading` = a direct upload
+   * to the bucket that hasn't been confirmed yet). */
   status: text("status").notNull().default("uploaded"),
   error: text("error"),
   chapterCount: integer("chapter_count"),
@@ -244,7 +245,12 @@ export const userSettings = pgTable("user_settings", {
   timezone: text("timezone"),
 });
 
-/** The raw uploaded EPUB bytes, kept so any worker can (re)process it. */
+/**
+ * The original uploaded file, kept so any worker can (re)process it. The bytes live in
+ * object storage when `objectKey` is set, or in `data` otherwise (spec 14); a row always
+ * has at least one, and may briefly have both while files are being moved to the bucket.
+ * Read and written only through `storage/bookFiles.ts`.
+ */
 export const bookFiles = pgTable("book_files", {
   bookId: uuid("book_id")
     .primaryKey()
@@ -252,7 +258,11 @@ export const bookFiles = pgTable("book_files", {
   filename: text("filename").notNull(),
   mimeType: text("mime_type"),
   sizeBytes: integer("size_bytes").notNull(),
-  data: bytea("data").notNull(),
+  data: bytea("data"),
+  /** Key of the object in the bucket; null while the bytes are only in `data`. */
+  objectKey: text("object_key"),
+  /** Hex SHA-256 of the file; null until the server has first seen the bytes. */
+  sha256: text("sha256"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

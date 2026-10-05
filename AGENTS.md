@@ -212,6 +212,22 @@ against the old `node_modules`. Never run `make install` against production on y
   because Vocabulary lists `user_words` and a looked-up word may never have been triaged.
   Opening a word here is **not** a lookup. A word whose every book was deleted keeps its
   row with no book to open. Phone layout shows word / looked up / last only.
+- **Book files in object storage — phase 1** done (`docs/specs/14`): with an S3-compatible
+  bucket configured (`R2_*`; prod maps the backup's `BACKUP_R2_*` onto them, prefix
+  `books/`), uploaded files live there and `book_files` holds only `object_key` + `sha256`
+  — `data` is nullable now. Unconfigured (dev, tests) they stay in Postgres as before.
+  **Every read/write of a book file goes through `apps/server/src/storage/bookFiles.ts`**
+  (`storeBookFile` / `loadBookFile` / `deleteBookObject`); never select `book_files.data`
+  directly. `loadBookFile` falls back to the Postgres bytes if a bucket read fails.
+  Files ≤ 50 MB still go through `POST /api/books`; larger ones (cap
+  `BOOK_UPLOAD_MAX_BYTES`, 500 MB) go **browser → bucket** on a signed URL:
+  `POST /api/books/uploads` (book in status `uploading`) → PUT → `POST
+  /api/books/:id/uploads/complete` (server HEADs the object, never trusts the browser).
+  That path needs a CORS rule on the bucket allowing PUT from `WEB_ORIGIN`. The S3 client
+  is `aws4fetch` behind `storage/s3.ts`, **imported lazily** so a deploy that lacks the
+  dependency still boots. A book's object is deleted with the book; nothing else in the
+  bucket is ever cleaned up by the app. Phases 2 (copy existing files) and 3 (clear
+  Postgres) are separate.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

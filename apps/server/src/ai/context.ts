@@ -1,7 +1,5 @@
-import { eq } from "drizzle-orm";
 import { readEpub, readPdf, splitSentences } from "@lexiprep/core";
-import { db } from "../db/client.js";
-import { bookFiles } from "../db/schema.js";
+import { loadBookFile } from "../storage/bookFiles.js";
 import { isPdf } from "../queue/processBook.js";
 
 /** Sentences outside this range read poorly in a prompt (fragments / whole paragraphs). */
@@ -46,11 +44,7 @@ export async function extractContextExamples(
   if (targets.length === 0) return [];
 
   try {
-    const [file] = await db
-      .select({ data: bookFiles.data })
-      .from(bookFiles)
-      .where(eq(bookFiles.bookId, bookId))
-      .limit(1);
+    const file = await loadBookFile(bookId);
     if (!file) return [];
 
     const parsed = isPdf(file.data) ? await readPdf(file.data) : await readEpub(file.data);

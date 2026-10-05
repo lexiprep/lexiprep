@@ -41,6 +41,13 @@ services:
       # OpenRouter (AI contextual definitions). Optional — empty disables the feature.
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_DEFINITION_MODEL: ${OPENROUTER_DEFINITION_MODEL:-google/gemini-3.1-flash-lite}
+      # Object storage for book files (spec 14). Optional — unset keeps files in Postgres,
+      # which is what dev normally wants. Point these at any S3-compatible store to try it.
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET: ${R2_BUCKET:-lexiprep}
+      BOOKS_R2_PREFIX: ${BOOKS_R2_PREFIX:-books}
     working_dir: /workspace/lexiprep/apps/server
     # node_modules live in named volumes (not the host's, which is built against a
     # different pnpm store). The server is the sole installer; it populates the

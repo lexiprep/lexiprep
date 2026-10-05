@@ -24,6 +24,15 @@ const schema = z.object({
    * been seen taking ~20s (and answering 522) for every word at once.
    */
   FREEDICT_TIMEOUT_MS: z.coerce.number().int().positive().default(3_000),
+  // Object storage for book files (spec 14). Optional: without endpoint + key id + secret
+  // the files stay in Postgres. Production maps the backup's BACKUP_R2_* onto these.
+  R2_ENDPOINT: z.string().optional(),
+  R2_ACCESS_KEY_ID: z.string().optional(),
+  R2_SECRET_ACCESS_KEY: z.string().optional(),
+  R2_BUCKET: z.string().default("lexiprep"),
+  BOOKS_R2_PREFIX: z.string().default("books"),
+  /** Cap on a direct browser-to-bucket upload. The through-the-server limit is separate. */
+  BOOK_UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(500 * 1024 * 1024),
 });
 
 export const env = schema.parse(process.env);

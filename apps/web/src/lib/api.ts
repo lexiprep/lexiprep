@@ -2,7 +2,8 @@
 // /api to the server), so cookies flow without CORS.
 
 export type UserWordStatus = "learning" | "known" | "ignored";
-export type BookStatus = "uploaded" | "processing" | "ready" | "failed";
+/** `uploading` = a large file's direct upload to storage that was never confirmed. */
+export type BookStatus = "uploading" | "uploaded" | "processing" | "ready" | "failed";
 
 /**
  * Which UI surface a status change came from. Only `"learning"` (the Learning page) lets a
@@ -208,6 +209,60 @@ export function uploadBook(file: File): Promise<Book> {
   return request<{ book: Book }>("/api/books", { method: "POST", body: form }).then(
     (r) => r.book,
   );
+}
+
+export interface UploadConfig {
+  /** Largest file the server accepts through `POST /api/books`. */
+  maxBytes: number;
+  /** Larger files go from the browser straight to storage, when the server has it. */
+  direct: { enabled: boolean; maxBytes: number };
+}
+
+export const getUploadConfig = () => request<UploadConfig>("/api/books/upload-config");
+
+/** PUT a file to a signed storage URL, reporting progress (fetch can't, XHR can). */
+function putToStorage(url: string, file: File, onProgress?: (fraction: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    if (file.type) xhr.setRequestHeader("content-type", file.type);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Storage refused the upload (${xhr.status})`));
+    xhr.onerror = () => reject(new Error("The upload was interrupted before it finished"));
+    xhr.send(file);
+  });
+}
+
+/**
+ * Upload a file too large for the server: reserve the book, PUT the bytes straight to
+ * storage, then have the server confirm them. If the bytes never make it, the reserved
+ * book is removed again so no half-uploaded card is left behind.
+ */
+export async function uploadBookDirect(
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<Book> {
+  const { book, uploadUrl } = await request<{ book: Book; uploadUrl: string }>(
+    "/api/books/uploads",
+    {
+      method: "POST",
+      body: JSON.stringify({ filename: file.name, sizeBytes: file.size, mimeType: file.type }),
+    },
+  );
+  try {
+    await putToStorage(uploadUrl, file, onProgress);
+    return await request<{ book: Book }>(`/api/books/${book.id}/uploads/complete`, {
+      method: "POST",
+    }).then((r) => r.book);
+  } catch (err) {
+    await deleteBook(book.id).catch(() => {});
+    throw err;
+  }
 }
 
 /** Re-extract a book with the latest engine. Triage and notes are preserved server-side. */
