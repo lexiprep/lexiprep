@@ -12,7 +12,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx src/db/seed-levels.ts",
-    "db:definitions": "tsx scripts/build-definitions.ts"
+    "db:definitions": "tsx scripts/build-definitions.ts",
+    "books:to-r2": "tsx scripts/books-to-r2.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

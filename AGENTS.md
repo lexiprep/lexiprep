@@ -226,8 +226,15 @@ against the old `node_modules`. Never run `make install` against production on y
   That path needs a CORS rule on the bucket allowing PUT from `WEB_ORIGIN`. The S3 client
   is `aws4fetch` behind `storage/s3.ts`, **imported lazily** so a deploy that lacks the
   dependency still boots. A book's object is deleted with the book; nothing else in the
-  bucket is ever cleaned up by the app. Phases 2 (copy existing files) and 3 (clear
-  Postgres) are separate.
+  bucket is ever cleaned up by the app.
+- **Book files in object storage — phase 2** done: **`make books-to-r2`** (prod;
+  `apps/server/scripts/books-to-r2.ts` → `storage/migrateBookFiles.ts`) copies every file
+  still only in Postgres to the bucket. Each one is uploaded, **read back and compared**
+  (size + SHA-256) before `object_key` is recorded; `data` is left in place, so it is
+  re-runnable and a failed file changes nothing. `args="--dry-run"` lists, `args="--book
+  <id>"` does one book. It ends with a manifest (one JSON line per object) to check
+  against the bucket listing, and exits non-zero on any failure. Phase 3 (clear Postgres)
+  is separate.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),
