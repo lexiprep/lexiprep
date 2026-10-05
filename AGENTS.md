@@ -233,8 +233,15 @@ against the old `node_modules`. Never run `make install` against production on y
   (size + SHA-256) before `object_key` is recorded; `data` is left in place, so it is
   re-runnable and a failed file changes nothing. `args="--dry-run"` lists, `args="--book
   <id>"` does one book. It ends with a manifest (one JSON line per object) to check
-  against the bucket listing, and exits non-zero on any failure. Phase 3 (clear Postgres)
-  is separate.
+  against the bucket listing, and exits non-zero on any failure.
+- **Book files in object storage — phase 3** done: **`make books-prune-db`** (prod;
+  `scripts/prune-book-files.ts` → `pruneBookFileBytes`) sets `book_files.data` to NULL
+  for files in the bucket, then runs `VACUUM FULL book_files` to give the disk back. It
+  is a **dry run unless `args="--yes"`**. Every row is re-verified first — the object is
+  downloaded again and compared (size + SHA-256) with the Postgres bytes — and anything
+  not proven identical is kept, with a non-zero exit. Run `make backup` beforehand and
+  keep that dump: it is the last one containing the files. After this the bucket holds
+  the only copy of each book.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

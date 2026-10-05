@@ -110,3 +110,72 @@ export async function copyBookFilesToBucket(opts: MigrateOptions = {}): Promise<
     manifest: manifest.map((m) => ({ ...m, objectKey: m.objectKey! })),
   };
 }
+
+export interface PruneResult {
+  /** Rows whose Postgres bytes were cleared in this run (or, on a dry run, would be). */
+  cleared: { bookId: string; bytes: number }[];
+  /** Rows left untouched because their object could not be proven identical. */
+  failed: { bookId: string; error: string }[];
+}
+
+/**
+ * Phase 3 of spec 14: clear `book_files.data` for files that are safely in the bucket.
+ * "Safely" is established here and now, not taken from an earlier run: each object is
+ * downloaded again and compared (size + SHA-256) with the Postgres bytes, and `data` is
+ * set to NULL only on an exact match. A missing object, a mismatch or a failed read
+ * leaves the row alone. Reclaiming the disk space (`VACUUM FULL`) is the caller's step.
+ */
+export async function pruneBookFileBytes(opts: MigrateOptions = {}): Promise<PruneResult> {
+  const log = opts.log ?? (() => {});
+  const store = await getObjectStore();
+  if (!store) throw new Error("Object storage is not configured (R2_* env)");
+
+  const candidates = await db
+    .select({ bookId: bookFiles.bookId, objectKey: bookFiles.objectKey })
+    .from(bookFiles)
+    .where(
+      and(
+        isNotNull(bookFiles.data),
+        isNotNull(bookFiles.objectKey),
+        opts.bookId ? eq(bookFiles.bookId, opts.bookId) : undefined,
+      ),
+    )
+    .orderBy(bookFiles.createdAt);
+
+  const cleared: PruneResult["cleared"] = [];
+  const failed: PruneResult["failed"] = [];
+  for (const { bookId, objectKey } of candidates) {
+    try {
+      const [row] = await db
+        .select({ data: bookFiles.data })
+        .from(bookFiles)
+        .where(eq(bookFiles.bookId, bookId))
+        .limit(1);
+      if (!row?.data || !objectKey) continue;
+      const data = Buffer.from(row.data);
+      const object = await store.get(objectKey);
+      if (!object) throw new Error(`object ${objectKey} is not in the bucket`);
+      if (object.length !== data.length || sha256Hex(object) !== sha256Hex(data)) {
+        throw new Error(`object ${objectKey} does not match the Postgres bytes`);
+      }
+      if (opts.dryRun) {
+        log(`would clear ${bookId} (${data.length} bytes; ${objectKey} verified)`);
+      } else {
+        // Guarded on the key just verified, so a row repointed meanwhile is not cleared.
+        const updated = await db
+          .update(bookFiles)
+          .set({ data: null })
+          .where(and(eq(bookFiles.bookId, bookId), eq(bookFiles.objectKey, objectKey)))
+          .returning({ bookId: bookFiles.bookId });
+        if (updated.length === 0) continue;
+        log(`cleared ${bookId} (${data.length} bytes; ${objectKey} verified)`);
+      }
+      cleared.push({ bookId, bytes: data.length });
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      log(`KEPT ${bookId}: ${error}`);
+      failed.push({ bookId, error });
+    }
+  }
+  return { cleared, failed };
+}
