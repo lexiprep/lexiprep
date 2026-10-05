@@ -1,5 +1,6 @@
 # lexiprep app — dev tasks. Run `make` for help.
 filter ?=
+args ?=
 
 .DEFAULT_GOAL := help
 
@@ -57,6 +58,9 @@ prod-logs: ## [prod] Tail production logs
 prod-dict: ## [prod] Refresh the dictionary in production (safe upsert)
 	$(PROD) exec server pnpm db:definitions
 
+books-to-r2: ## [prod] Copy book files from Postgres to R2 and verify them (re-runnable). Optional: args="--dry-run" | args="--book <id>"
+	$(PROD) exec server pnpm books:to-r2 $(args)
+
 backup: ## [prod] Run a DB backup to R2 right now (the sidecar also runs it on schedule)
 	$(PROD) exec backup /backup/pg-backup.sh
 
@@ -67,4 +71,4 @@ help: ## Show available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict backup backup-logs help
+.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict books-to-r2 backup backup-logs help
