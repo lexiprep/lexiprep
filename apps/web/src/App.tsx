@@ -3,11 +3,13 @@ import { Toaster } from "sonner";
 import { useTheme } from "./lib/theme";
 import { Protected } from "./components/Protected";
 import { Layout } from "./components/Layout";
+import { LookupsPage } from "./pages/LookupsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { BooksPage } from "./pages/BooksPage";
 import { BookPage } from "./pages/BookPage";
 import { AllBooksPage } from "./pages/AllBooksPage";
 import { BookSettingsPage } from "./pages/BookSettingsPage";
+import { DictionaryPage } from "./pages/DictionaryPage";
 import { LearningPage } from "./pages/LearningPage";
 import { ReviewPage } from "./pages/ReviewPage";
 import { StatsPage } from "./pages/StatsPage";
@@ -28,6 +30,7 @@ export function App() {
         >
           <Route path="/" element={<BooksPage />} />
           <Route path="/learning" element={<LearningPage />} />
+          <Route path="/lookups" element={<LookupsPage />} />
           <Route path="/review" element={<ReviewPage />} />
           <Route path="/stats" element={<StatsPage />} />
           {/* Static, so it wins over /books/:id — "all" is never a book id. */}
@@ -35,6 +38,15 @@ export function App() {
           <Route path="/books/:id" element={<BookPage />} />
           <Route path="/books/:id/settings" element={<BookSettingsPage />} />
         </Route>
+        {/* Outside the layout on purpose: the dictionary is used mid-reading, so no nav. */}
+        <Route
+          path="/books/:id/dictionary"
+          element={
+            <Protected>
+              <DictionaryPage />
+            </Protected>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>

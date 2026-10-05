@@ -24,8 +24,10 @@ import {
   getWordDetail,
   listBooks,
   markBookOpened,
+  recordWordLookup,
   reprocessBook,
   reviewBatch,
+  searchBookDictionary,
   updateBook,
   updateWordNote,
 } from "../books/service.js";
@@ -160,6 +162,42 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       stats,
       words,
     };
+  });
+
+  // Dictionary search for the reading page: matches any status and any surface form.
+  app.get("/books/:id/dictionary", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const book = await getBook(request.user!.id, id);
+    if (!book) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    const q = request.query as Record<string, string | undefined>;
+    const limit = Number(q.limit);
+    return {
+      words: await searchBookDictionary(
+        request.user!.id,
+        book,
+        q.q ?? "",
+        Number.isFinite(limit) && limit > 0 ? limit : undefined,
+      ),
+    };
+  });
+
+  // Count one dictionary lookup of a word (fired when the reading page opens it).
+  app.post("/books/:id/words/:word/lookups", async (request, reply) => {
+    const { id, word } = request.params as { id: string; word: string };
+    const book = await getBook(request.user!.id, id);
+    if (!book) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    if (!(await recordWordLookup(request.user!.id, book, decodeURIComponent(word)))) {
+      reply.code(404);
+      return { error: "Word not in this book" };
+    }
+    reply.code(201);
+    return { ok: true };
   });
 
   // Word detail for the modal (lazy definition lookup lives here — spec 03).

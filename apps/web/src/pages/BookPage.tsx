@@ -305,6 +305,11 @@ export function BookPage() {
           ← Books
         </Link>
         <span className="grow" />
+        {ready && (
+          <Link to={`/books/${id}/dictionary`} className="btn ghost slim">
+            Dictionary
+          </Link>
+        )}
         <Link to={`/books/${id}/settings`} className="btn ghost slim">
           Settings
         </Link>

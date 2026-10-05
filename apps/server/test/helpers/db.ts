@@ -20,6 +20,7 @@ const TABLES = [
   "feature_usage_events",
   "feature_limits",
   "word_notes",
+  "word_lookups",
   "user_word_events",
   "user_words",
   "book_words",

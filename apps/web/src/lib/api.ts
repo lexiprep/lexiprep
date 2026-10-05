@@ -265,6 +265,57 @@ export const getLibraryWords = (params: WordsParams & { language?: string }) =>
     `/api/words/library${qs({ ...params })}`,
   );
 
+/**
+ * Dictionary search for a book's reading page: matches the base form or any surface form,
+ * whatever the word's triage status. Exact match first, then by frequency.
+ */
+export const searchBookDictionary = (id: string, q: string) =>
+  request<{ words: BookWordRow[] }>(`/api/books/${id}/dictionary${qs({ q })}`).then(
+    (r) => r.words,
+  );
+
+/** Count one dictionary lookup of a word (the reading page opening it). */
+export const recordWordLookup = (id: string, word: string) =>
+  request<{ ok: true }>(`/api/books/${id}/words/${encodeURIComponent(word)}/lookups`, {
+    method: "POST",
+  });
+
+/** A word looked up from a book's dictionary, rolled up over the lookup log. */
+export interface LookupRow {
+  /** Base form (lemma). */
+  word: string;
+  /** How many times it was opened from a dictionary. */
+  lookups: number;
+  /** When it was last looked up (ISO-8601, UTC). */
+  lastAt: string;
+  /** Occurrences in the books in scope — the whole library, or the filtered book. */
+  count: number;
+  bookCount: number;
+  level: string | null;
+  example: string | null;
+  /** The book it occurs in most — what the word modal opens against. Null once every
+   * book holding the word has been deleted. */
+  bookTitle: string | null;
+  bookId: string | null;
+  status: UserWordStatus | null;
+}
+
+export interface LookupsParams {
+  limit: number;
+  offset: number;
+  sort?: string;
+  bookId?: string;
+  /** "" = every word; "new" (untriaged) | "learning" | "known" | "ignored". */
+  status?: string;
+  q?: string;
+  language?: string;
+}
+
+export const getLookups = (params: LookupsParams) =>
+  request<{ stats: { words: number; lookups: number }; words: LookupRow[] }>(
+    `/api/words/lookups${qs({ ...params })}`,
+  );
+
 export const getWordDetail = (id: string, word: string) =>
   request<WordDetail>(`/api/books/${id}/words/${encodeURIComponent(word)}`);
 

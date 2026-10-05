@@ -2205,3 +2205,128 @@ kbd {
 .library-books .here {
   font-weight: 600;
 }
+
+/* ── Book dictionary (lookups while reading) ──────────────────────────────── */
+/* Renders outside the app layout: a narrow column with nothing but the search. */
+.dict-page {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 20px 16px 80px;
+}
+.dict-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.dict-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dict-input {
+  width: 100%;
+  font-size: 18px;
+  padding: 12px 14px;
+}
+.dict-results {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.dict-results li + li {
+  border-top: 1px solid var(--border);
+}
+.dict-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 6px;
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dict-row:hover {
+  background: var(--row-hover);
+}
+.dict-word {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+/* ── Lookups (what the dictionary was opened for) ─────────────────────────── */
+/* Amber is this page's one signal: how hard a word has been to hold on to. The bar is
+   read against the most looked-up word on screen, so the stubborn ones stand out. */
+.lookup-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.lookup-meter .num {
+  min-width: 2ch;
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.lookup-bar {
+  width: 96px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--subtle);
+  overflow: hidden;
+}
+.lookup-bar::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: max(6%, calc(var(--share, 0) * 100%));
+  border-radius: 3px;
+  background: var(--amber);
+}
+table.words.lookups .col-last {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+table.words.lookups th.col-last {
+  font-size: 12px;
+}
+.empty a {
+  color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  /* Word, how often, how recently. Level, status and frequency are a tap away in the
+     word modal, like "In books" on the other lists. */
+  table.words.lookups thead tr,
+  table.words.lookups tbody tr {
+    grid-template-columns: minmax(0, 1fr) 6.25rem 6.25rem;
+  }
+  table.words.lookups tbody tr {
+    padding: 16px 0;
+  }
+  table.words.lookups th.col-level,
+  table.words.lookups td.col-level,
+  table.words.lookups td.col-status,
+  table.words.lookups th.col-count,
+  table.words.lookups td.col-count {
+    display: none;
+  }
+  table.words.lookups .col-last {
+    text-align: right;
+  }
+  .lookup-meter {
+    gap: 8px;
+  }
+  .lookup-bar {
+    width: 52px;
+  }
+}

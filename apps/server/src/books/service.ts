@@ -22,6 +22,7 @@ import {
   aiDefinitions,
   aiWordDefinitions,
   wordNotes,
+  wordLookups,
   type Book,
   type NewUserWordEvent,
   type UserWordStatus,
@@ -429,6 +430,232 @@ export async function getBookWordStats(userId: string, book: Book, q: WordsQuery
     count({ view: "untriaged", minLevel: UNLEVELED, maxLevel: UNLEVELED }),
   ]);
   return { total, remaining, filtered, unleveled };
+}
+
+// ── Book dictionary (lookups while reading) ──────────────────────────────────
+
+/**
+ * Dictionary search for the reading page: every word of the book that matches `rawQuery`,
+ * whatever its triage status — a word marked known or ignored is still one the reader may
+ * need to look up. Matches the base form **or any surface form**, because the reader types
+ * what is on the page ("strode") and the row is the base form ("stride"). Stopwords stay
+ * hidden. An exact match comes first, the rest by frequency. Empty query → no rows.
+ */
+export async function searchBookDictionary(
+  userId: string,
+  book: Book,
+  rawQuery: string,
+  limit = 50,
+) {
+  const term = rawQuery.trim().toLowerCase();
+  if (!term) return [];
+  const pattern = "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
+  const exact = sql`(${KEY} = ${term} or bool_or(${bookWords.word} = ${term}))`;
+
+  return db
+    .select({
+      word: KEY.as("word"),
+      count: sql<number>`sum(${bookWords.count})::int`.as("count"),
+      level: sql<string | null>`max(${bookWords.level})`.as("level"),
+      example: sql<string | null>`max(${bookWords.example})`.as("example"),
+      status: userWords.status,
+    })
+    .from(bookWords)
+    .leftJoin(
+      userWords,
+      and(
+        eq(userWords.userId, userId),
+        eq(userWords.language, book.language),
+        sql`${userWords.lemma} = ${KEY}`,
+      ),
+    )
+    .where(eq(bookWords.bookId, book.id))
+    .groupBy(KEY, userWords.status)
+    .having(
+      and(
+        sql`bool_or(${bookWords.isStopword}) = false`,
+        sql`(${KEY} like ${pattern} or bool_or(${bookWords.word} like ${pattern}))`,
+      ),
+    )
+    .orderBy(sql`${exact} desc`, sql`sum(${bookWords.count}) desc`, sql`${KEY} asc`)
+    .limit(Math.min(Math.max(limit, 1), 200));
+}
+
+/**
+ * Record that the user looked `rawWord` up from this book's dictionary page. Keyed by the
+ * base form (the list row's `word`). Returns false when the word isn't in the book.
+ */
+export async function recordWordLookup(
+  userId: string,
+  book: Book,
+  rawWord: string,
+): Promise<boolean> {
+  const key = rawWord.trim().toLowerCase();
+  const [inBook] = await db
+    .select({ id: bookWords.id })
+    .from(bookWords)
+    .where(and(eq(bookWords.bookId, book.id), sql`${KEY} = ${key}`))
+    .limit(1);
+  if (!inBook) return false;
+  await db
+    .insert(wordLookups)
+    .values({ userId, bookId: book.id, language: book.language, lemma: key });
+  return true;
+}
+
+// ── Lookups (what the reader had to look up) ─────────────────────────────────
+
+export interface LookupsQuery {
+  /** Defaults to `en`. */
+  language?: string;
+  /** Only lookups made from this book; its own counts replace the library-wide ones. */
+  bookId?: string;
+  /** `new` (untriaged) / `learning` / `known` / `ignored`; anything else → every word. */
+  status?: string;
+  /** Substring search over the base form. */
+  q?: string;
+  /** "field:dir,…" over lookups | last | count | word | level. */
+  sort?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * The lookup log rolled up per word (`lk`), joined to how often that word occurs in the
+ * books in scope (`bw`) and to the user's status for it. A word whose every book has
+ * been deleted still has its `lk` row and simply carries no book columns.
+ */
+function lookupScope(userId: string, q: LookupsQuery) {
+  const language = q.language ?? "en";
+  const bookId = q.bookId && UUID_RE.test(q.bookId) ? q.bookId : undefined;
+
+  const lk = db
+    .select({
+      lemma: wordLookups.lemma,
+      lookups: sql<number>`count(*)::int`.as("lookups"),
+      // ISO-8601 text, so it reads the same from every driver and sorts chronologically.
+      lastAt: sql<string>`to_char(max(${wordLookups.at}) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`.as(
+        "last_at",
+      ),
+    })
+    .from(wordLookups)
+    .where(
+      and(
+        eq(wordLookups.userId, userId),
+        eq(wordLookups.language, language),
+        bookId ? eq(wordLookups.bookId, bookId) : undefined,
+      ),
+    )
+    .groupBy(wordLookups.lemma)
+    .as("lk");
+
+  const bw = db
+    .select({
+      k: KEY.as("k"),
+      count: sql<number>`sum(${bookWords.count})::int`.as("count"),
+      bookCount: sql<number>`count(distinct ${books.id})::int`.as("book_count"),
+      level: sql<string | null>`max(${bookWords.level})`.as("level"),
+      example: sql<string | null>`max(${bookWords.example})`.as("example"),
+      bookTitle: sql<
+        string | null
+      >`(array_agg(${books.title} order by ${bookWords.count} desc))[1]`.as("book_title"),
+      bookId: sql<
+        string | null
+      >`(array_agg(${books.id} order by ${bookWords.count} desc))[1]`.as("book_id"),
+    })
+    .from(bookWords)
+    .innerJoin(books, eq(books.id, bookWords.bookId))
+    .where(
+      and(
+        eq(books.userId, userId),
+        eq(books.language, language),
+        bookId ? eq(books.id, bookId) : undefined,
+      ),
+    )
+    .groupBy(KEY)
+    .as("bw");
+
+  const status =
+    q.status === "new"
+      ? isNull(userWords.id)
+      : q.status === "learning" || q.status === "known" || q.status === "ignored"
+        ? eq(userWords.status, q.status)
+        : undefined;
+  const term = q.q?.trim().toLowerCase();
+  const search = term
+    ? sql`${lk.lemma} like ${"%" + term.replace(/[\\%_]/g, "\\$&") + "%"}`
+    : undefined;
+
+  const userWord = and(
+    eq(userWords.userId, userId),
+    eq(userWords.language, language),
+    eq(userWords.lemma, lk.lemma),
+  );
+  return { lk, bw, userWord, where: and(status, search) };
+}
+
+/**
+ * Words the user looked up while reading, most looked-up first by default. `count` is how
+ * often the word occurs in the books in scope (0 once none of them holds it), and the
+ * representative book is what the word modal opens against.
+ */
+export function listLookups(userId: string, q: LookupsQuery) {
+  const { lk, bw, userWord, where } = lookupScope(userId, q);
+
+  const fields: Record<string, SQL> = {
+    lookups: sql`${lk.lookups}`,
+    last: sql`${lk.lastAt}`,
+    count: sql`${bw.count}`,
+    word: sql`${lk.lemma}`,
+    level: sql`${bw.level}`,
+  };
+  const order: SQL[] = [];
+  const used = new Set<string>();
+  for (const part of (q.sort ?? "").split(",")) {
+    const [field, dir] = part.split(":");
+    const expr = field ? fields[field] : undefined;
+    if (!field || !expr || used.has(field)) continue;
+    used.add(field);
+    order.push(sql`${expr} ${sql.raw(dir === "asc" ? "asc" : "desc")} nulls last`);
+  }
+  if (!used.has("lookups")) order.push(sql`${lk.lookups} desc`);
+  if (!used.has("last")) order.push(sql`${lk.lastAt} desc`);
+  if (!used.has("word")) order.push(sql`${lk.lemma} asc`);
+
+  return db
+    .select({
+      word: lk.lemma,
+      lookups: lk.lookups,
+      lastAt: lk.lastAt,
+      count: sql<number>`coalesce(${bw.count}, 0)`,
+      bookCount: sql<number>`coalesce(${bw.bookCount}, 0)`,
+      level: bw.level,
+      example: bw.example,
+      bookTitle: bw.bookTitle,
+      bookId: bw.bookId,
+      status: userWords.status,
+    })
+    .from(lk)
+    .leftJoin(bw, eq(bw.k, lk.lemma))
+    .leftJoin(userWords, userWord)
+    .where(where)
+    .orderBy(...order)
+    .limit(Math.min(q.limit ?? 100, 1000))
+    .offset(q.offset ?? 0);
+}
+
+/** Totals for the same scope and filters: distinct words, and lookups summed over them. */
+export async function countLookups(userId: string, q: LookupsQuery) {
+  const { lk, userWord, where } = lookupScope(userId, q);
+  const [row] = await db
+    .select({
+      words: sql<number>`count(*)::int`,
+      lookups: sql<number>`coalesce(sum(${lk.lookups}), 0)::int`,
+    })
+    .from(lk)
+    .leftJoin(userWords, userWord)
+    .where(where);
+  return { words: row?.words ?? 0, lookups: row?.lookups ?? 0 };
 }
 
 // ── Library words (every book at once) ───────────────────────────────────────

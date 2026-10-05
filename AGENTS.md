@@ -195,6 +195,23 @@ against the old `node_modules`. Never run `make install` against production on y
   A long book title also widened the toolbar past the viewport and scrolled the page (a
   native select sizes to its widest option and a flex item won't shrink below that);
   `.toolbar .ctl` now shrinks instead.
+- **Book dictionary + lookup log** done: `/books/:id/dictionary` (`DictionaryPage`, opened
+  from the book page) is the while-reading view — rendered **outside `Layout`** (no nav),
+  one search box, matches as a plain list, the book page's `WordModal` for the meaning.
+  `GET /api/books/:id/dictionary?q=` (`searchBookDictionary`) searches every non-stopword
+  of the book whatever its triage status and matches the base form **or any surface form**
+  (`strode` → `stride`); exact match first, then frequency. Opening a word there posts to
+  `POST /api/books/:id/words/:word/lookups` → append-only `word_lookups` (`bookId` set null
+  on book delete, so the history survives). Opens from triage surfaces are not lookups.
+  The log is read by one page only (below); nothing else shows lookup counts.
+- **Lookups page** done: `/lookups` (`LookupsPage`, in the nav) rolls `word_lookups` up per
+  word — `GET /api/words/lookups` (`listLookups`/`countLookups`): times looked up, last
+  looked up, level, status, and occurrences in the books in scope (library-wide, or one
+  book with `bookId`). Sortable by `lookups|last|count|word|level`, filterable by book,
+  status (`new` = never triaged) and search. It is its own page, not a Vocabulary tab,
+  because Vocabulary lists `user_words` and a looked-up word may never have been triaged.
+  Opening a word here is **not** a lookup. A word whose every book was deleted keeps its
+  row with no book to open. Phone layout shows word / looked up / last only.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

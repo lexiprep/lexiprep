@@ -163,6 +163,93 @@ describe("GET /api/books/:id/words", () => {
   });
 });
 
+describe("book dictionary", () => {
+  it("searches by surface form and counts a lookup", async () => {
+    const book = await createBook(alice.userId);
+    await addBookWords(book.id, [
+      { word: "stride", lemma: "stride", count: 2 },
+      { word: "strode", lemma: "stride", count: 3 },
+    ]);
+    const search = await app.inject({
+      method: "GET",
+      url: `/api/books/${book.id}/dictionary?q=strode`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(search.statusCode).toBe(200);
+    expect((search.json() as { words: { word: string }[] }).words.map((w) => w.word)).toEqual([
+      "stride",
+    ]);
+
+    const lookup = await app.inject({
+      method: "POST",
+      url: `/api/books/${book.id}/words/stride/lookups`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(lookup.statusCode).toBe(201);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: `/api/books/${book.id}/words/zebra/lookups`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("404s another user's book (tenant isolation)", async () => {
+    const bob = await signUp("bob@example.com");
+    const book = await createBook(bob.userId);
+    await addBookWords(book.id, [{ word: "stride", lemma: "stride" }]);
+    const search = await app.inject({
+      method: "GET",
+      url: `/api/books/${book.id}/dictionary?q=stride`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(search.statusCode).toBe(404);
+    const lookup = await app.inject({
+      method: "POST",
+      url: `/api/books/${book.id}/words/stride/lookups`,
+      headers: { cookie: alice.cookie },
+    });
+    expect(lookup.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/words/lookups", () => {
+  it("lists what was looked up from the dictionary", async () => {
+    const book = await createBook(alice.userId);
+    await addBookWords(book.id, [{ word: "stride", lemma: "stride", count: 4, level: "B2" }]);
+    for (let i = 0; i < 2; i++) {
+      await app.inject({
+        method: "POST",
+        url: `/api/books/${book.id}/words/stride/lookups`,
+        headers: { cookie: alice.cookie },
+      });
+    }
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/words/lookups",
+      headers: { cookie: alice.cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      stats: { words: number; lookups: number };
+      words: { word: string; lookups: number; count: number; bookId: string }[];
+    };
+    expect(body.stats).toEqual({ words: 1, lookups: 2 });
+    expect(body.words).toHaveLength(1);
+    expect(body.words[0]).toMatchObject({ word: "stride", lookups: 2, count: 4, bookId: book.id });
+  });
+
+  it("400s a malformed bookId", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/words/lookups?bookId=nope",
+      headers: { cookie: alice.cookie },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe("POST /api/books/:id/review", () => {
   it("resolves a batch and the words drop out of the to-review list", async () => {
     const book = await createBook(alice.userId);

@@ -17,6 +17,7 @@ const THEME_OPTIONS: { value: ThemeChoice; label: string }[] = [
 const LINKS: { to: string; label: string; end?: boolean }[] = [
   { to: "/", label: "Books", end: true },
   { to: "/learning", label: "Vocabulary" },
+  { to: "/lookups", label: "Lookups" },
   { to: "/review", label: "Review" },
   { to: "/stats", label: "Stats" },
 ];

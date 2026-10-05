@@ -12,6 +12,7 @@ import { retryAfterSeconds } from "../usage/guard.js";
 import {
   buildAnkiDeck,
   countLearningWords,
+  countLookups,
   countUserWordsByStatus,
   deleteUserWord,
   getBook,
@@ -20,6 +21,7 @@ import {
   getVocabularyTimeseries,
   GRANULARITIES,
   listLearningWords,
+  listLookups,
   listUserWords,
   upsertUserWords,
   type DeckCard,
@@ -156,6 +158,29 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
     const [words, stats] = await Promise.all([
       getLibraryWords(request.user!.id, opts),
       getLibraryWordStats(request.user!.id, opts),
+    ]);
+    return { words, stats };
+  });
+
+  // Words looked up from a book's dictionary while reading, rolled up per word.
+  app.get("/words/lookups", async (request, reply) => {
+    const q = request.query as Record<string, string | undefined>;
+    if (q.bookId !== undefined && !UUID_RE.test(q.bookId)) {
+      reply.code(400);
+      return { error: "bookId must be a valid id" };
+    }
+    const opts = {
+      language: q.language ?? DEFAULT_LANGUAGE,
+      bookId: q.bookId || undefined,
+      status: q.status || undefined,
+      q: q.q || undefined,
+      sort: q.sort || undefined,
+      limit: num(q.limit) ?? 100,
+      offset: num(q.offset) ?? 0,
+    };
+    const [words, stats] = await Promise.all([
+      listLookups(request.user!.id, opts),
+      countLookups(request.user!.id, opts),
     ]);
     return { words, stats };
   });
