@@ -61,6 +61,9 @@ prod-dict: ## [prod] Refresh the dictionary in production (safe upsert)
 books-to-r2: ## [prod] Copy book files from Postgres to R2 and verify them (re-runnable). Optional: args="--dry-run" | args="--book <id>"
 	$(PROD) exec server pnpm books:to-r2 $(args)
 
+books-prune-db: ## [prod] Clear book file bytes from Postgres once verified in R2, then VACUUM FULL. Dry run unless args="--yes"
+	$(PROD) exec server pnpm books:prune-db $(args)
+
 backup: ## [prod] Run a DB backup to R2 right now (the sidecar also runs it on schedule)
 	$(PROD) exec backup /backup/pg-backup.sh
 
@@ -71,4 +74,4 @@ help: ## Show available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict books-to-r2 backup backup-logs help
+.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict books-to-r2 books-prune-db backup backup-logs help
