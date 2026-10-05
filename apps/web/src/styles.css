@@ -802,6 +802,10 @@ table.words tbody tr:last-child td {
   color: var(--muted);
   cursor: pointer;
 }
+/* The thumb-reach twin of the X — phones only (see the word modal's phone rules). */
+.modal-close-foot {
+  display: none;
+}
 .modal-head {
   display: flex;
   align-items: center;
@@ -1163,6 +1167,12 @@ table.words td.center {
     max-height: none;
     border-radius: 0;
     box-shadow: none;
+  }
+  .word-modal .modal-close-foot {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding-block: 12px;
   }
 }
 
@@ -2227,8 +2237,8 @@ kbd {
 }
 .dict-input {
   width: 100%;
-  font-size: 18px;
-  padding: 12px 14px;
+  font-size: 21px;
+  padding: 14px 16px;
 }
 .dict-results {
   list-style: none;
@@ -2243,7 +2253,7 @@ kbd {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 12px 6px;
+  padding: 15px 6px;
   background: none;
   border: none;
   color: var(--text);
@@ -2257,9 +2267,40 @@ kbd {
 .dict-word {
   flex: 1;
   min-width: 0;
-  font-size: 17px;
+  font-size: 20px;
   font-weight: 550;
   overflow-wrap: anywhere;
+}
+/* The word and its meaning are read from a phone lying beside the book, further off than
+   a phone in the hand — so they are set larger here than in the same modal elsewhere. */
+.dict-page .word-modal .modal-head h2 {
+  font-size: 34px;
+}
+.dict-page .word-modal .example {
+  font-size: 17px;
+}
+.dict-page .word-modal .senses li,
+.dict-page .word-modal .wm-note-text {
+  font-size: 19px;
+  line-height: 1.5;
+}
+.dict-page .word-modal .senses .sense-ex {
+  font-size: 16px;
+}
+/* In the dark theme the dictionary goes true black: the screen is on for the whole
+   reading session, and it should not be a lamp beside the book. */
+[data-theme="dark"].dict-mode {
+  --bg: #000;
+  --surface: #000;
+  --border: #20262e;
+  --text: #d5dae1;
+  --subtle: #10141a;
+  --hover: #161b22;
+  --row-hover: #0d1116;
+}
+[data-theme="dark"].dict-mode .dict-head,
+[data-theme="dark"].dict-mode .dict-input:placeholder-shown:not(:focus) {
+  opacity: 0.6;
 }
 
 /* ── Lookups (what the dictionary was opened for) ─────────────────────────── */

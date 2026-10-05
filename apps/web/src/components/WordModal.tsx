@@ -97,6 +97,17 @@ export function WordModal({
   // a note from the book page can't disturb the frozen review batch either.
   const refreshDetail = () => qc.invalidateQueries({ queryKey: ["word", bookId, word] });
 
+  // Escape closes — except from a field being edited, where it belongs to the edit.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return;
+      onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const d = detail.data;
   // Inside a book, the contextual definition is the relevant one; outside any book it's
   // the word's own, book-independent meanings.
@@ -169,7 +180,7 @@ export function WordModal({
   );
 
   return (
-    <ModalOverlay onClose={onClose} className="word-modal" closeOnBackdrop={false}>
+    <ModalOverlay onClose={onClose} className="word-modal">
       <button className="modal-close" onClick={onClose} aria-label="Close">
         ×
       </button>
@@ -290,6 +301,10 @@ export function WordModal({
             Click the highlighted button again to undo.
           </p>
         )}
+        {/* Phones only: the modal fills the screen there, and the X sits out of thumb reach. */}
+        <button className="btn modal-close-foot" onClick={onClose}>
+          Close
+        </button>
       </div>
     </ModalOverlay>
   );

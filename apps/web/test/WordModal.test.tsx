@@ -232,16 +232,20 @@ describe("WordModal", () => {
     );
   });
 
-  it("closes via the X button, not by clicking the overlay", () => {
+  it("closes via the X, the footer button, the backdrop or Escape — not a tap inside", () => {
     vi.mocked(api.getWordDetail).mockReturnValue(new Promise<WordDetail>(() => {}));
     const { onClose, container } = renderModal();
 
-    fireEvent.click(container.querySelector(".modal-overlay")!);
-    expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(container.querySelector(".modal")!);
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(container.querySelector(".modal-close")!);
     expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.click(container.querySelector(".modal-close-foot")!);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    fireEvent.click(container.querySelector(".modal-overlay")!);
+    expect(onClose).toHaveBeenCalledTimes(3);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(4);
   });
 
   it("offers the AI button only while the user has no definition of their own", async () => {

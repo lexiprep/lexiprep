@@ -5,7 +5,7 @@ import { useBodyScrollLock } from "../lib/useBodyScrollLock";
  * The shared shell for every modal: a full-screen backdrop, an inner `.modal` panel that
  * stops click propagation, and a body scroll lock that holds while the modal is mounted.
  * Backdrop click closes by default; pass `closeOnBackdrop={false}` to require an explicit
- * close control (e.g. the word modal's X). EVERY modal in the app must render through this
+ * close control. EVERY modal in the app must render through this
  * so the background can never scroll behind an open modal — do not hand-roll a
  * `.modal-overlay` elsewhere.
  */

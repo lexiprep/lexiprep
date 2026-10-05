@@ -94,6 +94,43 @@ describe("DictionaryPage", () => {
     expect(api.recordWordLookup).toHaveBeenCalledWith("book-1", "stride");
   });
 
+  it("remembers an Enter pressed before the matches arrive", async () => {
+    renderPage();
+    const input = await screen.findByLabelText("Look up a word");
+    fireEvent.change(input, { target: { value: "stride" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    expect(await screen.findByText("modal:stride")).toBeInTheDocument();
+    expect(api.recordWordLookup).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a remembered Enter when the word is edited afterwards", async () => {
+    renderPage();
+    const input = await screen.findByLabelText("Look up a word");
+    fireEvent.change(input, { target: { value: "stri" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "stride" } });
+
+    await screen.findByText("astride");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(api.recordWordLookup).not.toHaveBeenCalled();
+  });
+
+  it("keeps the screen awake while open and lets go on leaving", async () => {
+    const release = vi.fn().mockResolvedValue(undefined);
+    const request = vi.fn().mockResolvedValue({ released: false, release });
+    Object.defineProperty(navigator, "wakeLock", { value: { request }, configurable: true });
+    try {
+      const { unmount } = renderPage();
+      await waitFor(() => expect(request).toHaveBeenCalledWith("screen"));
+      unmount();
+      expect(release).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (navigator as { wakeLock?: unknown }).wakeLock;
+    }
+  });
+
   it("says so when nothing matches", async () => {
     vi.mocked(api.searchBookDictionary).mockResolvedValue([]);
     renderPage();

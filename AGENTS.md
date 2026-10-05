@@ -204,6 +204,14 @@ against the old `node_modules`. Never run `make install` against production on y
   `POST /api/books/:id/words/:word/lookups` → append-only `word_lookups` (`bookId` set null
   on book delete, so the history survives). Opens from triage surfaces are not lookups.
   The log is read by one page only (below); nothing else shows lookup counts.
+  Tuned for a **phone lying beside the book**: the screen is kept awake (`useWakeLock`),
+  the open word lives in **router location state**, so the back gesture closes it instead
+  of leaving the page, Enter pressed before the matches land is honoured when they do, the
+  keyboard is dropped while a word is open, and in the dark theme the page goes true black
+  (`.dict-mode` on `<html>`) with larger type for the word and its meaning.
+- **Word modal closing**: backdrop click and Escape close it again (Escape is ignored
+  inside a note field); on phones, where it fills the screen, a **Close** button sits in
+  the pinned footer within thumb reach.
 - **Lookups page** done: `/lookups` (`LookupsPage`, in the nav) rolls `word_lookups` up per
   word — `GET /api/words/lookups` (`listLookups`/`countLookups`): times looked up, last
   looked up, level, status, and occurrences in the books in scope (library-wide, or one
