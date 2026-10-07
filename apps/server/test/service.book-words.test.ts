@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { getBookWords, getBookWordStats } from "../src/books/service.js";
-import type { Book } from "../src/db/schema.js";
+import { db } from "../src/db/client.js";
+import { aiDefinitions, type Book } from "../src/db/schema.js";
 import { addBookWords, createBook, createUser, setUserWord } from "./helpers/db.js";
 
 let userId: string;
@@ -43,6 +44,26 @@ describe("getBookWords — grouping & stopwords", () => {
 
     const withStop = await getBookWords(userId, book, { includeStopwords: true });
     expect(withStop.map((r) => r.word)).toContain("the");
+  });
+});
+
+describe("getBookWords — AI definition status", () => {
+  it("attaches the book's AI definition status per word, null when never requested", async () => {
+    await db.insert(aiDefinitions).values([
+      { bookId: book.id, lemma: "say", status: "done" },
+      { bookId: book.id, lemma: "run", status: "failed" },
+    ]);
+    const rows = await getBookWords(userId, book, {});
+    expect(rows.find((r) => r.word === "say")).toMatchObject({ count: 8, aiStatus: "done" });
+    expect(rows.find((r) => r.word === "run")?.aiStatus).toBe("failed");
+    expect(rows.find((r) => r.word === "suitor")?.aiStatus).toBeNull();
+  });
+
+  it("ignores another book's definition of the same word", async () => {
+    const other = await createBook(userId, { language: "en" });
+    await db.insert(aiDefinitions).values({ bookId: other.id, lemma: "say", status: "done" });
+    const rows = await getBookWords(userId, book, {});
+    expect(rows.find((r) => r.word === "say")?.aiStatus).toBeNull();
   });
 });
 

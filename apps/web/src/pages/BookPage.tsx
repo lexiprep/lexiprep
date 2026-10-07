@@ -28,6 +28,7 @@ import { usePersistentState } from "../lib/usePersistentState";
 import { LevelBadge, StatusBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
 import { WordModal } from "../components/WordModal";
+import { AiDefinitionButton } from "../components/AiDefinitionButton";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { CardMode } from "../components/CardMode";
 import { FilterSheet } from "../components/FilterSheet";
@@ -119,6 +120,7 @@ export function BookPage() {
   });
   const rows = useMemo(() => wordsQ.data?.words ?? [], [wordsQ.data]);
   const stats = wordsQ.data?.stats;
+  const aiEnabled = wordsQ.data?.aiDefinitionEnabled ?? false;
   const hasMore = rows.length === pageSize;
   const levelLabel = levelRangeLabel(minLevel, maxLevel);
   // The batch minus words triaged this session — what's actually shown.
@@ -229,6 +231,13 @@ export function BookPage() {
         const w = row.original;
         return (
           <span className="row-actions">
+            {/* Leftmost, so the triage buttons don't shift when it disappears. */}
+            <AiDefinitionButton
+              bookId={id}
+              word={w.word}
+              aiStatus={w.aiStatus ?? null}
+              enabled={aiEnabled}
+            />
             {TRIAGE.map((t) => {
               const active = w.status === t.status;
               return (
@@ -247,7 +256,7 @@ export function BookPage() {
       },
     });
     return cols;
-  }, [view]);
+  }, [view, id, aiEnabled]);
 
   const table = useReactTable({
     data: visibleRows,

@@ -161,7 +161,7 @@ describe("GET /api/books/:id/words", () => {
       words: { word: string; count: number }[];
     };
     expect(body.stats.total).toBe(1); // one non-stopword lemma ("say")
-    expect(body.words).toEqual([{ word: "say", count: 8, level: "A1", example: null, status: null }]);
+    expect(body.words).toEqual([{ word: "say", count: 8, level: "A1", example: null, status: null, aiStatus: null }]);
   });
 });
 

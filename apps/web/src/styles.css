@@ -1139,6 +1139,11 @@ table.words td.center {
     flex: 1;
     padding: 10px 8px;
   }
+  /* The AI trigger is a side action — it keeps its own width beside the triage three. */
+  .col-triage .row-actions .btn.ai-row {
+    flex: 0 0 auto;
+    padding: 10px 12px;
+  }
   .review-bar {
     flex-direction: column;
     align-items: stretch;

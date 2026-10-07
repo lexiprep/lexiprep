@@ -38,6 +38,8 @@ export interface BookWordRow {
   level: string | null;
   example: string | null;
   status: UserWordStatus | null;
+  /** The book's AI contextual definition for this word; null/absent = never requested. */
+  aiStatus?: AiDefinitionStatus | null;
 }
 
 export interface BookWordStats {
@@ -309,6 +311,8 @@ export const getBookWords = (id: string, params: WordsParams) =>
     book: { id: string; status: BookStatus; language: string };
     stats: BookWordStats;
     words: BookWordRow[];
+    /** False when the server has no OpenRouter key — hide the AI UI entirely. */
+    aiDefinitionEnabled: boolean;
   }>(`/api/books/${id}/words${qs({ ...params })}`);
 
 /**

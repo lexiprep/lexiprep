@@ -451,6 +451,8 @@ function searchCondition(q?: string): SQL | undefined {
  * collapse into one `echo`. Hides stopwords and every lemma the user has triaged by
  * default (spec 05). Supports a CEFR `minLevel` filter and multi-column `sort`. The
  * displayed `word` is the base form; `getWordDetail` lists the individual surface forms.
+ * `aiStatus` is the state of the book's AI contextual definition for the word (null =
+ * never requested), so the list can offer the generate button without a detail fetch.
  */
 export function getBookWords(userId: string, book: Book, q: WordsQuery) {
   const where = [eq(bookWords.bookId, book.id)];
@@ -467,6 +469,7 @@ export function getBookWords(userId: string, book: Book, q: WordsQuery) {
       level: sql<string | null>`max(${bookWords.level})`.as("level"),
       example: sql<string | null>`max(${bookWords.example})`.as("example"),
       status: userWords.status,
+      aiStatus: aiDefinitions.status,
     })
     .from(bookWords)
     .leftJoin(
@@ -477,8 +480,13 @@ export function getBookWords(userId: string, book: Book, q: WordsQuery) {
         sql`${userWords.lemma} = ${KEY}`,
       ),
     )
+    // At most one row per (book, lemma), so the join never multiplies a group.
+    .leftJoin(
+      aiDefinitions,
+      and(eq(aiDefinitions.bookId, book.id), sql`${aiDefinitions.lemma} = ${KEY}`),
+    )
     .where(and(...where))
-    .groupBy(KEY, userWords.status)
+    .groupBy(KEY, userWords.status, aiDefinitions.status)
     // Hide a lemma if any of its surface forms is a function word.
     .having(q.includeStopwords ? sql`true` : sql`bool_or(${bookWords.isStopword}) = false`)
     .orderBy(...buildOrderBy(q.sort))

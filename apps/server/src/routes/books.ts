@@ -243,6 +243,7 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
       book: { id: book.id, status: book.status, language: book.language },
       stats,
       words,
+      aiDefinitionEnabled: Boolean(env.OPENROUTER_API_KEY),
     };
   });
 
@@ -386,7 +387,8 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
     return result;
   });
 
-  // Manually request the AI contextual definition for a word (the modal button).
+  // Manually request the AI contextual definition for a word (the modal button and the
+  // book page's per-row one).
   // Advisory 429 up front for UX; the authoritative reserve+refund lives in the worker.
   app.post("/books/:id/words/:word/ai-definition", async (request, reply) => {
     const { id, word } = request.params as { id: string; word: string };
