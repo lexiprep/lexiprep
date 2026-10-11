@@ -457,6 +457,8 @@ export interface ReviewWord {
   bookId: string | null;
   example: string | null;
   updatedAt: string;
+  /** When the word entered its current status (ISO-8601) — "added to Learning". */
+  addedAt: string;
 }
 
 export interface ReviewStats {
@@ -476,6 +478,9 @@ export interface ReviewWordsParams {
   /** Inclusive bounds on the library-wide count, whatever the book filter is. */
   minCount?: number;
   maxCount?: number;
+  /** ISO timestamps bounding when the word entered this status (after ≤ added < before). */
+  addedAfter?: string;
+  addedBefore?: string;
   q?: string;
   sort?: string;
   language?: string;

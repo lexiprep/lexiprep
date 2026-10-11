@@ -72,6 +72,13 @@ function num(v: string | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** A timestamp query param: absent, blank or unparseable all mean "no bound". */
+function date(v: string | undefined): Date | undefined {
+  if (v === undefined || v.trim() === "") return undefined;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
 function isStatus(v: unknown): v is UserWordStatus {
   return typeof v === "string" && (USER_WORD_STATUSES as readonly string[]).includes(v);
 }
@@ -106,7 +113,8 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // The cross-book study list: words of one status (default `learning`), enriched with
-  // level + book(s), filterable by book / CEFR range / substring, sortable, paginated.
+  // level + book(s), filterable by book / CEFR range / time added / substring, sortable,
+  // paginated.
   app.get("/words/review", async (request, reply) => {
     const q = request.query as Record<string, string | undefined>;
     const status = q.status ?? "learning";
@@ -127,6 +135,9 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
       // Bounds on the library-wide occurrence count, independent of the book filter.
       minCount: num(q.minCount),
       maxCount: num(q.maxCount),
+      // Bounds on when the word entered this status ("older than a year" = addedBefore).
+      addedAfter: date(q.addedAfter),
+      addedBefore: date(q.addedBefore),
       q: q.q || undefined,
       sort: q.sort || undefined,
       limit: q.limit ? Number(q.limit) : 100,

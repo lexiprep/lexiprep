@@ -1295,6 +1295,12 @@ export interface ReviewWordsQuery {
    */
   minCount?: number;
   maxCount?: number;
+  /**
+   * Bounds on when the word entered its current status ({@link ADDED_AT}): `addedAfter`
+   * is inclusive, `addedBefore` exclusive. `addedBefore` a year ago is "older than a year".
+   */
+  addedAfter?: Date;
+  addedBefore?: Date;
   /** Case-insensitive substring match on the word. */
   q?: string;
   /** "field:dir" — field ∈ {added, word, level, count, books}. Defaults to `added:desc`. */
@@ -1304,6 +1310,20 @@ export interface ReviewWordsQuery {
 }
 
 type ReviewAgg = ReturnType<typeof reviewBookAgg>;
+
+/**
+ * When a word entered the status it has now — "added to Learning" on the Learning tab.
+ * `user_words.updated_at` can't answer that: every review grade bumps it. The event log
+ * can, so this is the latest transition into the current status, falling back to the
+ * row's creation for words triaged before the log existed (it has no backfill).
+ */
+const ADDED_AT = sql<Date>`coalesce((
+  select max(${userWordEvents.at}) from ${userWordEvents}
+  where ${userWordEvents.userId} = ${userWords.userId}
+    and ${userWordEvents.language} = ${userWords.language}
+    and ${userWordEvents.lemma} = ${userWords.lemma}
+    and ${userWordEvents.toStatus} = ${userWords.status}
+), ${userWords.createdAt})`;
 
 /**
  * Per-lemma rollup of the user's books: total occurrences, CEFR level, an example, and
@@ -1403,6 +1423,8 @@ function reviewWhere(scope: VocabScope, userId: string, q: ReviewWordsQuery): SQ
   where.push(...levelRange(agg.level, q.minLevel, q.maxLevel));
   if (q.minCount !== undefined) where.push(sql`${scope.totalCount} >= ${q.minCount}`);
   if (q.maxCount !== undefined) where.push(sql`${scope.totalCount} <= ${q.maxCount}`);
+  if (q.addedAfter) where.push(sql`${ADDED_AT} >= ${q.addedAfter.toISOString()}`);
+  if (q.addedBefore) where.push(sql`${ADDED_AT} < ${q.addedBefore.toISOString()}`);
   if (q.q) {
     where.push(sql`${userWords.lemma} like ${"%" + q.q.trim().toLowerCase() + "%"}`);
   }
@@ -1412,7 +1434,7 @@ function reviewWhere(scope: VocabScope, userId: string, q: ReviewWordsQuery): SQ
 /** Parse "field:dir" into ORDER BY fragments; always tie-breaks on the word. */
 function reviewOrderBy(sort: string | undefined, scope: VocabScope): SQL[] {
   const fields: Record<string, SQL> = {
-    added: sql`${userWords.updatedAt}`,
+    added: ADDED_AT,
     word: sql`${userWords.lemma}`,
     level: sql`${scope.agg.level}`,
     count: sql`coalesce(${scope.agg.count}, 0)`,
@@ -1428,7 +1450,7 @@ function reviewOrderBy(sort: string | undefined, scope: VocabScope): SQL[] {
   }
   // As in buildOrderBy: "in most books" ranks by frequency within a tie, not by spelling.
   if (used.has("books") && !used.has("count")) order.push(sql`${fields.count} desc nulls last`);
-  if (order.length === 0) order.push(sql`${userWords.updatedAt} desc`);
+  if (order.length === 0) order.push(sql`${ADDED_AT} desc`);
   if (!used.has("word")) order.push(sql`${userWords.lemma} asc`);
   return order;
 }
@@ -1448,6 +1470,8 @@ export function listLearningWords(userId: string, q: ReviewWordsQuery) {
       word: userWords.lemma,
       status: userWords.status,
       updatedAt: userWords.updatedAt,
+      /** When the word entered this status, as ISO-8601 text. */
+      addedAt: sql<string>`to_char(${ADDED_AT} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
       level: agg.level,
       /** Occurrences in scope — the whole library, or just the filtered book. */
       count: sql<number>`coalesce(${agg.count}, 0)`,

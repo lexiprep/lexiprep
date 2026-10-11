@@ -1058,7 +1058,10 @@ table.words td.center {
   table.words th.col-status {
     display: none;
   }
-  /* Word, level, and count fit. "In books" stays a tap away, in the word modal. */
+  /* Word, level, and count fit. "In books" stays a tap away, in the word modal, and
+     "Added" is reached through the Filters sheet (its filter and the sort). */
+  table.words th.col-added,
+  table.words td.col-added,
   table.words th.col-books,
   table.words td.col-books {
     display: none;
@@ -2337,7 +2340,8 @@ kbd {
   border-radius: 3px;
   background: var(--amber);
 }
-table.words.lookups .col-last {
+table.words.lookups .col-last,
+table.words td.col-added {
   color: var(--muted);
   font-size: 13px;
   white-space: nowrap;

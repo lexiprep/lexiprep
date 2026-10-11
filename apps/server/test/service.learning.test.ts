@@ -4,6 +4,9 @@ import {
   countLearningWords,
   buildAnkiDeck,
 } from "../src/books/service.js";
+import { and, eq, inArray } from "drizzle-orm";
+import { db } from "../src/db/client.js";
+import { userWordEvents, userWords } from "../src/db/schema.js";
 import {
   addBookWords,
   addDefinition,
@@ -106,6 +109,56 @@ describe("listLearningWords", () => {
     const rows = await listLearningWords(userId, { sort: "books:desc" });
     expect(rows[0]!.word).toBe("ocean"); // the only word in two books
     expect(rows[0]!.bookCount).toBe(2);
+  });
+
+  describe("time added", () => {
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+    const event = (lemma: string, toStatus: string, at: Date, fromStatus: string | null = null) =>
+      db
+        .insert(userWordEvents)
+        .values({ userId, language: "en", lemma, fromStatus, toStatus, source: "book", at });
+
+    beforeEach(async () => {
+      // ocean: triaged long ago, never moved. suitor: known first, moved to learning
+      // 40 days ago. tide: added today (the default) and graded since.
+      await db
+        .update(userWords)
+        .set({ createdAt: daysAgo(400) })
+        .where(and(eq(userWords.userId, userId), inArray(userWords.lemma, ["ocean", "suitor"])));
+      await event("suitor", "known", daysAgo(400));
+      await event("suitor", "learning", daysAgo(40), "known");
+      await db
+        .update(userWords)
+        .set({ updatedAt: daysAgo(-1) })
+        .where(and(eq(userWords.userId, userId), eq(userWords.lemma, "ocean")));
+    });
+
+    it("sorts by when the word entered the status, not by the last review", async () => {
+      const oldest = await listLearningWords(userId, { sort: "added:asc" });
+      expect(oldest.map((r) => r.word)).toEqual(["ocean", "suitor", "tide"]);
+      const newest = await listLearningWords(userId, { sort: "added:desc" });
+      expect(newest.map((r) => r.word)).toEqual(["tide", "suitor", "ocean"]);
+    });
+
+    it("reports the time added, from the event log when it has the transition", async () => {
+      const rows = await listLearningWords(userId, {});
+      const age = (w: string) =>
+        Math.round((Date.now() - Date.parse(rows.find((r) => r.word === w)!.addedAt)) / 86_400_000);
+      expect(age("ocean")).toBe(400);
+      expect(age("suitor")).toBe(40);
+      expect(age("tide")).toBe(0);
+    });
+
+    it("filters to words added before or after a moment", async () => {
+      const old = await listLearningWords(userId, { addedBefore: daysAgo(365) });
+      expect(old.map((r) => r.word)).toEqual(["ocean"]);
+      const recent = await listLearningWords(userId, { addedAfter: daysAgo(60) });
+      expect(recent.map((r) => r.word).sort()).toEqual(["suitor", "tide"]);
+      expect(await countLearningWords(userId, { addedBefore: daysAgo(365) })).toEqual({
+        total: 3,
+        filtered: 1,
+      });
+    });
   });
 
   it("only returns words of the requested status", async () => {

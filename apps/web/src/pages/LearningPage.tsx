@@ -15,6 +15,8 @@ import {
   type UserWordStatus,
 } from "../lib/api";
 import { levelRangeLabel } from "../lib/levels";
+import { ago } from "../lib/ago";
+import { ADDED_OPTIONS, addedRange } from "../lib/addedRange";
 import { usePersistentState } from "../lib/usePersistentState";
 import { LevelBadge } from "../components/badges";
 import { LevelRange } from "../components/LevelRange";
@@ -28,6 +30,7 @@ const PAGE_SIZES = [10, 20, 50, 100];
 
 const SORT_OPTIONS = [
   { value: "added:desc", label: "Recently added" },
+  { value: "added:asc", label: "Oldest added" },
   { value: "word:asc", label: "A → Z" },
   { value: "word:desc", label: "Z → A" },
   { value: "level:asc", label: "Level ↑" },
@@ -38,12 +41,13 @@ const SORT_OPTIONS = [
 ];
 
 // Click a column header to sort: first click uses this direction, clicking again flips it.
-type SortField = "word" | "level" | "count" | "books";
+type SortField = "word" | "level" | "count" | "books" | "added";
 const SORT_FIRST_DIR: Record<SortField, "asc" | "desc"> = {
   word: "asc",
   level: "asc",
   count: "desc",
   books: "desc",
+  added: "desc",
 };
 
 const STATUS_TABS: { value: UserWordStatus; label: string }[] = [
@@ -87,6 +91,7 @@ export function LearningPage() {
   const [maxLevel, setMaxLevel] = usePersistentState(vk("maxLevel"), "");
   const [minCount, setMinCount] = usePersistentState(vk("minCount"), "");
   const [maxCount, setMaxCount] = usePersistentState(vk("maxCount"), "");
+  const [added, setAdded] = usePersistentState(vk("added"), "");
   const [sort, setSort] = usePersistentState(vk("sort"), "count:desc");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -115,6 +120,8 @@ export function LearningPage() {
   });
   const counts = countsQ.data;
 
+  // When the word entered this tab's status — "older than a year" finds what to revisit.
+  const addedBounds = addedRange(added);
   const wordsQ = useQuery({
     queryKey: [
       "review",
@@ -127,6 +134,7 @@ export function LearningPage() {
         maxLevel,
         minCount,
         maxCount,
+        added: addedBounds,
         sort,
         search,
       },
@@ -141,6 +149,7 @@ export function LearningPage() {
         maxLevel: maxLevel || undefined,
         minCount: minCount === "" ? undefined : Number(minCount),
         maxCount: maxCount === "" ? undefined : Number(maxCount),
+        ...addedBounds,
         sort,
         q: search || undefined,
       }),
@@ -181,7 +190,7 @@ export function LearningPage() {
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   useEffect(() => {
     setRemoved(new Set());
-  }, [status, pageIndex, bookId, minLevel, maxLevel, minCount, maxCount, sort, search]);
+  }, [status, pageIndex, bookId, minLevel, maxLevel, minCount, maxCount, added, sort, search]);
   const visibleRows = rows.filter((r) => !removed.has(r.word));
 
   const mark = useMutation({
@@ -223,12 +232,14 @@ export function LearningPage() {
         : maxCount
           ? `≤${maxCount}×`
           : "";
+  const addedLabel = added && ADDED_OPTIONS.find((o) => o.value === added)?.label;
   const bookName = bookId ? readyBooks.find((b) => b.id === bookId)?.title : null;
   const sortLabel = SORT_OPTIONS.find((o) => o.value === sort)?.label;
   const appliedFilters = [
     bookName,
     levelLabel && `Level ${levelLabel}`,
     countLabel,
+    addedLabel && `Added ${addedLabel.toLowerCase()}`,
     search && `“${search}”`,
     sort !== "count:desc" && sortLabel && `Sort ${sortLabel}`,
     pageSize !== 50 && `${pageSize} per page`,
@@ -308,6 +319,24 @@ export function LearningPage() {
         />
 
         <label className="ctl">
+          Added
+          <select
+            value={added}
+            title="Filter by when the word was added to this list"
+            onChange={(e) => {
+              setAdded(e.target.value);
+              resetView();
+            }}
+          >
+            {ADDED_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="ctl">
           Sort
           <select
             value={sort}
@@ -373,6 +402,7 @@ export function LearningPage() {
               {sortableTh("level", "Level")}
               {sortableTh("count", "Count", true)}
               {sortableTh("books", "In books", true)}
+              {sortableTh("added", "Added")}
               <th className="col-triage right">Triage</th>
             </tr>
           </thead>
@@ -400,6 +430,11 @@ export function LearningPage() {
                 </td>
                 <td className="col-books right">
                   <span className="num">{w.bookCount.toLocaleString()}</span>
+                </td>
+                <td className="col-added">
+                  <time dateTime={w.addedAt} title={new Date(w.addedAt).toLocaleString()}>
+                    {ago(w.addedAt)}
+                  </time>
                 </td>
                 <td className="col-triage right">
                   <span className="row-actions">
