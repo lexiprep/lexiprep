@@ -16,6 +16,7 @@ import {
 } from "@tanstack/react-table";
 import {
   finishBook,
+  bookCoverUrl,
   getBook,
   getBookWords,
   reviewBatch,
@@ -94,6 +95,9 @@ export function BookPage() {
     },
   });
   const book = bookQ.data;
+  // A cover that fails to load falls back to the plain text header.
+  const [coverFailed, setCoverFailed] = useState(false);
+  const cover = book && !coverFailed ? bookCoverUrl(book) : null;
   const ready = book?.status === "ready";
 
   const sortParam =
@@ -335,7 +339,15 @@ export function BookPage() {
         <p className="error">Book not found.</p>
       ) : (
         <>
-          <div className="book-header">
+          <div className={`book-header${cover ? " has-cover" : ""}`}>
+            {cover && (
+              <img
+                className="book-cover"
+                src={cover}
+                alt=""
+                onError={() => setCoverFailed(true)}
+              />
+            )}
             <h2>{book.title}</h2>
             {book.author && <p className="muted">{book.author}</p>}
             <p className="muted small book-sub">

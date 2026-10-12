@@ -52,6 +52,13 @@ export const books = pgTable("books", {
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   /** Stamped each time the user opens this book; most-recently-opened sorts the list first. */
   lastOpenedAt: timestamp("last_opened_at", { withTimezone: true }),
+  /** Short hash of the cover image in {@link bookCovers}; null when the book has none.
+   * Goes into the cover URL, so a changed cover is a new URL and the old one can be
+   * cached forever. */
+  coverVersion: text("cover_version"),
+  /** When the file was last searched for a cover; null = never, which is what the
+   * backfill (`make books-covers`) picks up. */
+  coverCheckedAt: timestamp("cover_checked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -263,6 +270,23 @@ export const bookFiles = pgTable("book_files", {
   objectKey: text("object_key"),
   /** Hex SHA-256 of the file; null until the server has first seen the bytes. */
   sha256: text("sha256"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A book's cover image, pulled out of the uploaded file. Stored like the file itself
+ * ({@link bookFiles}): in the bucket when one is configured (`objectKey`), else in `data`.
+ */
+export const bookCovers = pgTable("book_covers", {
+  bookId: uuid("book_id")
+    .primaryKey()
+    .references(() => books.id, { onDelete: "cascade" }),
+  /** Sniffed from the image bytes, never taken from the EPUB manifest. */
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  data: bytea("data"),
+  objectKey: text("object_key"),
+  sha256: text("sha256").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

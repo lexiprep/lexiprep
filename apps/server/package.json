@@ -14,7 +14,8 @@
     "db:seed": "tsx src/db/seed-levels.ts",
     "db:definitions": "tsx scripts/build-definitions.ts",
     "books:to-r2": "tsx scripts/books-to-r2.ts",
-    "books:prune-db": "tsx scripts/prune-book-files.ts"
+    "books:prune-db": "tsx scripts/prune-book-files.ts",
+    "books:covers": "tsx scripts/backfill-covers.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

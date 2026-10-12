@@ -5,6 +5,7 @@ import type { FastifyBaseLogger } from "fastify";
 import { db } from "../db/client.js";
 import { books, bookWords } from "../db/schema.js";
 import { loadBookFile } from "../storage/bookFiles.js";
+import { extractAndSaveCover } from "../storage/bookCovers.js";
 
 const INSERT_CHUNK = 1000;
 
@@ -185,6 +186,12 @@ export async function processBook(
     });
 
     logger.info({ bookId, uniqueWords: rows.length }, "process-book: ready");
+
+    // The cover is decoration: failing to get one must never fail the book. A miss here
+    // leaves the book unchecked, so `make books-covers` picks it up later.
+    await extractAndSaveCover(bookId, file.data).catch((err) =>
+      logger.warn({ bookId, err }, "process-book: cover extraction failed"),
+    );
   } catch (err) {
     logger.error({ bookId, err }, "process-book: failed");
     await db

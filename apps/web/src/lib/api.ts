@@ -28,8 +28,14 @@ export interface Book {
   wordsToReview: number;
   reviewedAt: string | null;
   lastOpenedAt: string | null;
+  /** Identifies the cover image extracted from the file; null when the book has none. */
+  coverVersion: string | null;
   createdAt: string;
 }
+
+/** URL of a book's cover image, or null when it has none. Versioned, so it caches for good. */
+export const bookCoverUrl = (book: Pick<Book, "id" | "coverVersion">): string | null =>
+  book.coverVersion ? `/api/books/${book.id}/cover?v=${book.coverVersion}` : null;
 
 export interface BookWordRow {
   /** Base form (lemma) — conjugations are grouped under it; counts are summed. */

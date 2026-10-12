@@ -318,6 +318,32 @@ h4 {
 .book-header h2 {
   font-size: 24px;
 }
+/* With a cover, it carries the identification: the title steps down beside it. */
+.book-header.has-cover {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 14px;
+  align-content: center;
+}
+.book-header.has-cover .book-cover {
+  grid-row: 1 / span 6;
+  width: 64px;
+}
+.book-header.has-cover h2 {
+  font-size: 17px;
+}
+/* A book's cover image, at the usual 2:3; odd-shaped ones are cropped to fit. */
+.book-cover {
+  display: block;
+  flex: none;
+  align-self: start;
+  width: 76px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--border);
+}
 
 /* Buttons */
 .btn {
@@ -431,6 +457,38 @@ select:focus {
   position: absolute;
   inset: 0;
   z-index: 1;
+}
+.book-card.has-cover {
+  flex-direction: row;
+  gap: 14px;
+}
+/* In a row the empty link would be a flex item and cost a gap; lift it out of the flow
+   and let it be the overlay itself. */
+.book-card.has-cover .stretched-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.book-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.book-card.has-cover h3 {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.book-card.has-cover .book-meta {
+  flex-direction: column;
+  gap: 2px;
+  margin-top: auto;
 }
 .book-card-top {
   display: flex;
@@ -1034,6 +1092,9 @@ table.words td.center {
   }
   .book-header h2 {
     font-size: 21px;
+  }
+  .book-header.has-cover h2 {
+    font-size: 16px;
   }
   /* The list is the page. A bordered panel costs a second inset (border, radius,
      shadow, and 14px of row padding) and on a phone that width belongs to the word.

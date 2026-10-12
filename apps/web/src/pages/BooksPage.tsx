@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  bookCoverUrl,
   getLibraryWords,
   getUploadConfig,
   listBooks,
@@ -167,8 +168,11 @@ function AllBooksCard() {
 
 function BookCard({ book, showStatus }: { book: Book; showStatus: boolean }) {
   const ready = book.status === "ready";
+  // A cover that fails to load (e.g. storage is unreachable) falls back to the text card.
+  const [coverFailed, setCoverFailed] = useState(false);
+  const cover = coverFailed ? null : bookCoverUrl(book);
   return (
-    <div className={`card book-card${ready ? " linkcard" : ""}`}>
+    <div className={`card book-card${ready ? " linkcard" : ""}${cover ? " has-cover" : ""}`}>
       {/* Whole-card link to open the book (stretched over the card via ::after).
           The gear link sits above it (z-index) so Settings stays separately clickable. */}
       {ready && (
@@ -178,6 +182,16 @@ function BookCard({ book, showStatus }: { book: Book; showStatus: boolean }) {
           aria-label={`Open ${book.title}`}
         />
       )}
+      {cover && (
+        <img
+          className="book-cover"
+          src={cover}
+          alt=""
+          loading="lazy"
+          onError={() => setCoverFailed(true)}
+        />
+      )}
+      <div className="book-card-body">
       <div className="book-card-top">
         <h3>{book.title}</h3>
         <div className="book-card-actions">
@@ -192,7 +206,8 @@ function BookCard({ book, showStatus }: { book: Book; showStatus: boolean }) {
           </Link>
         </div>
       </div>
-      {book.author && <p className="muted small">{book.author}</p>}
+      {/* The cover identifies the book; the author only stands in when there is none. */}
+      {!cover && book.author && <p className="muted small">{book.author}</p>}
       {book.status === "failed" && book.error && (
         <p className="error small">{book.error}</p>
       )}
@@ -210,6 +225,7 @@ function BookCard({ book, showStatus }: { book: Book; showStatus: boolean }) {
         {!ready && book.status !== "failed" && book.status !== "uploading" && (
           <span>Analyzing…</span>
         )}
+      </div>
       </div>
     </div>
   );

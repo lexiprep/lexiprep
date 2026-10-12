@@ -33,8 +33,13 @@ install: ## [prod] Install/update node_modules into the persisted volumes (run w
 	$(PROD) build
 	$(PROD) run --rm --no-deps server pnpm install --frozen-lockfile
 
-migrate: ## [prod] Sync schema (drizzle-kit push) then run data migrations (drizzle-kit migrate)
+# The cover backfill lives here, not in `deploy`: make has already read the old `deploy`
+# recipe by the time it pulls, while the `$(MAKE) migrate` sub-make reads the new file —
+# so the first deploy that ships it runs it too. It is a no-op once every book has been
+# checked, and a failure never fails the deploy.
+migrate: ## [prod] Sync schema (drizzle-kit push), run data migrations (drizzle-kit migrate), then backfill book covers
 	$(PROD) run --rm server sh -c "pnpm db:push && pnpm db:migrate"
+	-$(PROD) run --rm server pnpm books:covers
 
 seed: ## [prod] Seed CEFR word levels (one-time; idempotent, re-run if the wordlist changes)
 	$(PROD) run --rm server pnpm db:seed
@@ -64,6 +69,9 @@ books-to-r2: ## [prod] Copy book files from Postgres to R2 and verify them (re-r
 books-prune-db: ## [prod] Clear book file bytes from Postgres once verified in R2, then VACUUM FULL. Dry run unless args="--yes"
 	$(PROD) exec server pnpm books:prune-db $(args)
 
+books-covers: ## [prod] Extract covers for books that have never been checked for one (re-runnable; `make migrate` runs it too)
+	$(PROD) exec server pnpm books:covers
+
 backup: ## [prod] Run a DB backup to R2 right now (the sidecar also runs it on schedule)
 	$(PROD) exec backup /backup/pg-backup.sh
 
@@ -74,4 +82,4 @@ help: ## Show available commands
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict books-to-r2 books-prune-db backup backup-logs help
+.PHONY: up down build logs test dict-update install migrate seed deploy prod-up prod-down prod-logs prod-dict books-to-r2 books-prune-db books-covers backup backup-logs help

@@ -25,6 +25,7 @@ const TABLES = [
   "user_words",
   "book_words",
   "book_files",
+  "book_covers",
   "ai_definitions",
   "ai_word_definitions",
   "word_senses",

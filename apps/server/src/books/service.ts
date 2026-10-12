@@ -16,6 +16,7 @@ import {
 import { db } from "../db/client.js";
 import {
   books,
+  bookCovers,
   bookFiles,
   bookWords,
   userWords,
@@ -206,11 +207,17 @@ export async function reprocessBook(
  */
 export async function deleteBook(userId: string, bookId: string): Promise<boolean> {
   if (!UUID_RE.test(bookId)) return false;
-  // Read the key first — the cascade takes the `book_files` row with the book.
+  // Read the keys first — the cascade takes the file and cover rows with the book.
   const [file] = await db
     .select({ objectKey: bookFiles.objectKey })
     .from(bookFiles)
     .innerJoin(books, eq(books.id, bookFiles.bookId))
+    .where(and(eq(books.id, bookId), eq(books.userId, userId)))
+    .limit(1);
+  const [cover] = await db
+    .select({ objectKey: bookCovers.objectKey })
+    .from(bookCovers)
+    .innerJoin(books, eq(books.id, bookCovers.bookId))
     .where(and(eq(books.id, bookId), eq(books.userId, userId)))
     .limit(1);
   const deleted = await db
@@ -220,6 +227,7 @@ export async function deleteBook(userId: string, bookId: string): Promise<boolea
   if (deleted.length === 0) return false;
   // Row first, object second: a failure here leaves an orphan, never a dangling key.
   await deleteBookObject(file?.objectKey);
+  await deleteBookObject(cover?.objectKey);
   return true;
 }
 

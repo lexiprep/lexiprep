@@ -10,6 +10,7 @@ import {
 import { peek } from "../usage/service.js";
 import { retryAfterSeconds } from "../usage/guard.js";
 import { getObjectStore, UPLOAD_MAX_BYTES } from "../storage/bookFiles.js";
+import { loadBookCover } from "../storage/bookCovers.js";
 import { db } from "../db/client.js";
 import { bookWords } from "../db/schema.js";
 import { and, eq, sql } from "drizzle-orm";
@@ -172,6 +173,23 @@ export async function bookRoutes(app: FastifyInstance): Promise<void> {
     // Stamp the open so this book sorts to the top of the list next time.
     await markBookOpened(request.user!.id, book.id);
     return { book };
+  });
+
+  // The book's cover image. The URL carries `books.coverVersion` (`?v=`), so a response
+  // can be cached for good — a re-extracted cover gets a new URL.
+  app.get("/books/:id/cover", async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const book = await getBook(request.user!.id, id);
+    const cover = book?.coverVersion ? await loadBookCover(book.id, request.log) : null;
+    if (!cover) {
+      reply.code(404);
+      return { error: "Not found" };
+    }
+    reply
+      .header("content-type", cover.mimeType)
+      .header("cache-control", "private, max-age=31536000, immutable")
+      .header("x-content-type-options", "nosniff");
+    return cover.data;
   });
 
   // Edit the book's main details (title / author / translator).
