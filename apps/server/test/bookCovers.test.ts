@@ -2,9 +2,15 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from
 import { eq } from "drizzle-orm";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import JSZip from "jszip";
+import sharp from "sharp";
 import { buildApp } from "../src/app.js";
 import { db, schema } from "../src/db/client.js";
-import { extractEpubCover, sniffImage } from "../src/books/cover.js";
+import {
+  COVER_WIDTH,
+  extractEpubCover,
+  setImageLibraryForTests,
+  sniffImage,
+} from "../src/books/cover.js";
 import { deleteBook } from "../src/books/service.js";
 import { processBook } from "../src/queue/processBook.js";
 import { setObjectStoreForTests } from "../src/storage/bookFiles.js";
@@ -17,8 +23,11 @@ import { MemoryObjectStore } from "./helpers/objectStore.js";
 const { books, bookCovers } = schema;
 const logger = { info() {}, warn() {}, error() {} } as unknown as FastifyBaseLogger;
 
-const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]);
+// Real images, larger than a stored cover, so shrinking has something to do.
+const blank = { width: 900, height: 1350, channels: 3 as const, background: "#246" };
+const JPEG = await sharp({ create: blank }).jpeg().toBuffer();
+const PNG = await sharp({ create: blank }).png().toBuffer();
+const width = async (data: Buffer) => (await sharp(data).metadata()).width;
 
 /** A test EPUB with extra manifest/metadata/guide lines and extra (binary) files. */
 async function epubWith(
@@ -49,7 +58,10 @@ let userId: string;
 beforeEach(async () => {
   userId = await createUser();
 });
-afterEach(() => setObjectStoreForTests(undefined));
+afterEach(() => {
+  setObjectStoreForTests(undefined);
+  setImageLibraryForTests(undefined);
+});
 
 describe("extractEpubCover", () => {
   it("reads the EPUB 3 cover-image item", async () => {
@@ -110,7 +122,7 @@ describe("extractEpubCover", () => {
 describe("covers without object storage", () => {
   beforeEach(() => setObjectStoreForTests(null));
 
-  it("processBook stores the cover in Postgres and stamps the book", async () => {
+  it("processBook stores a shrunk cover in Postgres and stamps the book", async () => {
     const book = await createBook(userId, { status: "uploaded" });
     await addBookFile(book.id, await epub3());
 
@@ -120,7 +132,28 @@ describe("covers without object storage", () => {
     expect(updated.status).toBe("ready");
     expect(updated.coverVersion).toMatch(/^[0-9a-f]{12}$/);
     expect(updated.coverCheckedAt).not.toBeNull();
-    expect(await loadBookCover(book.id)).toEqual({ data: JPEG, mimeType: "image/jpeg" });
+    const cover = await loadBookCover(book.id);
+    expect(cover?.mimeType).toBe("image/webp");
+    expect(await width(cover!.data)).toBe(COVER_WIDTH);
+    expect(cover!.data.length).toBeLessThan(JPEG.length);
+    const [row] = await db.select().from(bookCovers).where(eq(bookCovers.bookId, book.id));
+    expect(row).toMatchObject({ width: COVER_WIDTH, sizeBytes: cover!.data.length });
+  });
+
+  it("treats a cover that does not decode as no cover", async () => {
+    const book = await createBook(userId, { status: "uploaded" });
+    const broken = await epubWith(
+      { manifest: `<item id="c" href="c.jpg" media-type="image/jpeg" properties="cover-image"/>` },
+      { "OEBPS/c.jpg": Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]) },
+    );
+    await addBookFile(book.id, broken);
+
+    await processBook(book.id, logger);
+
+    const updated = await bookRow(book.id);
+    expect(updated.status).toBe("ready");
+    expect(updated.coverVersion).toBeNull();
+    expect(updated.coverCheckedAt).not.toBeNull();
   });
 
   it("processBook stamps a book that has no cover", async () => {
@@ -157,14 +190,36 @@ describe("covers in object storage", () => {
     expect(result.found).toEqual([withCover.id]);
     expect(result.none.sort()).toEqual([plain.id, noFile.id].sort());
     expect(result.failed).toEqual([]);
-    const key = `books/covers/${withCover.id}.jpg`;
-    expect(store.objects.get(key)).toEqual(JPEG);
+    const key = `books/covers/${withCover.id}.webp`;
+    expect(await width(store.objects.get(key)!)).toBe(COVER_WIDTH);
     const [row] = await db.select().from(bookCovers).where(eq(bookCovers.bookId, withCover.id));
-    expect(row).toMatchObject({ objectKey: key, data: null, mimeType: "image/jpeg" });
-    expect(await loadBookCover(withCover.id)).toEqual({ data: JPEG, mimeType: "image/jpeg" });
+    expect(row).toMatchObject({ objectKey: key, data: null, mimeType: "image/webp" });
+    expect((await loadBookCover(withCover.id))?.data).toEqual(store.objects.get(key));
     expect((await bookRow(unprocessed.id)).coverCheckedAt).toBeNull();
 
-    expect(await backfillBookCovers()).toEqual({ found: [], none: [], failed: [] });
+    expect(await backfillBookCovers()).toMatchObject({ found: [], none: [], shrunk: [], failed: [] });
+  });
+
+  it("keeps the original while the image library is missing, then shrinks it and drops the original", async () => {
+    const book = await createBook(userId);
+    await addBookFile(book.id, await epub3());
+    setImageLibraryForTests(null);
+
+    const first = await backfillBookCovers();
+    expect(first).toMatchObject({ found: [book.id], shrunk: [], libraryMissing: true });
+    const original = `books/covers/${book.id}.jpg`;
+    expect(store.objects.get(original)).toEqual(JPEG);
+    const before = (await bookRow(book.id)).coverVersion;
+
+    setImageLibraryForTests(undefined);
+    const second = await backfillBookCovers();
+    expect(second).toMatchObject({ found: [], shrunk: [book.id], failed: [], libraryMissing: false });
+    expect([...store.objects.keys()]).toEqual([`books/covers/${book.id}.webp`]);
+    const [row] = await db.select().from(bookCovers).where(eq(bookCovers.bookId, book.id));
+    expect(row).toMatchObject({ width: COVER_WIDTH, mimeType: "image/webp" });
+    expect((await bookRow(book.id)).coverVersion).not.toBe(before);
+
+    expect((await backfillBookCovers()).shrunk).toEqual([]);
   });
 
   it("leaves a book pending when the bucket upload fails", async () => {
@@ -226,9 +281,9 @@ describe("GET /api/books/:id/cover", () => {
     const url = `/api/books/${book.id}/cover`;
     const ok = await app.inject({ method: "GET", url, headers: { cookie: alice.cookie } });
     expect(ok.statusCode).toBe(200);
-    expect(ok.headers["content-type"]).toBe("image/jpeg");
+    expect(ok.headers["content-type"]).toBe("image/webp");
     expect(ok.headers["cache-control"]).toContain("immutable");
-    expect(ok.rawPayload).toEqual(JPEG);
+    expect(await width(ok.rawPayload)).toBe(COVER_WIDTH);
 
     expect((await app.inject({ method: "GET", url, headers: { cookie: bob.cookie } })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url })).statusCode).toBe(401);

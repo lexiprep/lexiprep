@@ -8,8 +8,55 @@ export interface CoverImage {
   ext: string;
 }
 
-/** A cover is shown as a thumbnail; anything bigger than this isn't worth keeping. */
+/** Largest embedded image we will read and decode; a cover is never this big in earnest. */
 export const COVER_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Width covers are stored at. They are shown as thumbnails (about 76 CSS px), so this
+ * leaves room for dense screens and a larger placement later without keeping megabytes.
+ */
+export const COVER_WIDTH = 400;
+
+type Sharp = typeof import("sharp").default;
+let sharpOverride: Sharp | null | undefined;
+
+/**
+ * `sharp`, or null when it isn't installed. Imported on first use, not at module load: a
+ * deploy never installs dependencies (AGENTS.md → Deploying), so the release that adds it
+ * must still boot — and keep serving the covers it has — before `make install` has run.
+ * A miss isn't remembered, so the running server picks the library up once it is there.
+ */
+async function loadSharp(): Promise<Sharp | null> {
+  if (sharpOverride !== undefined) return sharpOverride;
+  try {
+    return (await import("sharp")).default;
+  } catch {
+    return null;
+  }
+}
+
+/** Pretend the image library is missing in tests (`undefined` = back to the real one). */
+export function setImageLibraryForTests(lib: null | undefined): void {
+  sharpOverride = lib;
+}
+
+/**
+ * Shrink a cover to {@link COVER_WIDTH} and re-encode it as WebP — the only form that is
+ * kept. Returns null when the image library isn't installed (the caller keeps the
+ * original for now); throws when the bytes don't decode as an image.
+ */
+export async function shrinkCover(
+  cover: CoverImage,
+): Promise<(CoverImage & { width: number }) | null> {
+  const sharp = await loadSharp();
+  if (!sharp) return null;
+  const { data, info } = await sharp(cover.data)
+    .rotate() // apply the EXIF orientation before the metadata is dropped
+    .resize({ width: COVER_WIDTH, withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toBuffer({ resolveWithObject: true });
+  return { data, mimeType: "image/webp", ext: "webp", width: info.width };
+}
 
 /**
  * Identify a raster image by its leading bytes. The type always comes from here, never

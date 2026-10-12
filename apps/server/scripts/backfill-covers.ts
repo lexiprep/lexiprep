@@ -1,5 +1,6 @@
 /**
- * Extract cover images for the books uploaded before covers existed.
+ * Extract cover images for the books uploaded before covers existed, and shrink any
+ * cover still stored at its original size.
  *
  *   make books-covers
  *
@@ -14,9 +15,15 @@ try {
   const result = await backfillBookCovers({ log: (l) => console.log(l) });
   console.log(
     `\nCovers: ${result.found.length}  without one: ${result.none.length}` +
-      `  failed: ${result.failed.length}`,
+      `  shrunk: ${result.shrunk.length}  failed: ${result.failed.length}`,
   );
-  process.exit(result.failed.length > 0 ? 1 : 0);
+  if (result.libraryMissing) {
+    console.log(
+      "The image library (sharp) is not installed, so covers were left at their original" +
+        " size. Run `make install`, then `make books-covers`.",
+    );
+  }
+  process.exit(result.failed.length > 0 || result.libraryMissing ? 1 : 0);
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);

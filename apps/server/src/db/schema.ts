@@ -284,6 +284,9 @@ export const bookCovers = pgTable("book_covers", {
   /** Sniffed from the image bytes, never taken from the EPUB manifest. */
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
+  /** Pixel width of the stored thumbnail; null while it is still the original image as
+   * found in the file (the image library wasn't installed yet) — the backfill shrinks those. */
+  width: integer("width"),
   data: bytea("data"),
   objectKey: text("object_key"),
   sha256: text("sha256").notNull(),
