@@ -15,6 +15,7 @@ import {
   type AiDefinitionOutput,
 } from "../ai/definitionPrompt.js";
 import type { chatJson } from "../ai/openrouter.js";
+import { requestSynonymsQuietly, type SynonymsRequest } from "./processAiDefinition.js";
 
 /** Matches the contextual worker: ride out a minute-window backlog, then fail visibly. */
 const MAX_DEFERRALS = 12;
@@ -34,6 +35,8 @@ export interface GeneralAiDefinitionJob {
 export interface GeneralAiDefinitionDeps {
   chatJson: typeof chatJson;
   requeue: (job: GeneralAiDefinitionJob, opts: { startAfter: number }) => Promise<unknown>;
+  /** Follow a finished definition with the word's synonyms (spec 15). */
+  requestSynonyms: (p: SynonymsRequest) => Promise<unknown>;
 }
 
 async function markFailed(id: string, error: string): Promise<void> {
@@ -139,6 +142,9 @@ export async function processGeneralAiDefinition(
       { language, lemma, meanings: meanings.length, model: result.model, costUsd: result.costUsd },
       "ai-word-definition: done",
     );
+    if (updated) {
+      await requestSynonymsQuietly(logger, deps, { language, lemma, userId, bookId: null });
+    }
   } catch (err) {
     if (quota.eventId) await refund(quota.eventId);
     await markFailed(row.id, err instanceof Error ? err.message : String(err));

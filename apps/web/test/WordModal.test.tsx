@@ -15,6 +15,7 @@ vi.mock("../src/lib/api", () => ({
   updateWordNote: vi.fn(),
   deleteWordNote: vi.fn(),
   generateAiDefinition: vi.fn(),
+  generateAiSynonyms: vi.fn(),
   checkUsage: vi.fn(),
   ApiError: class ApiError extends Error {},
 }));
@@ -32,9 +33,16 @@ const detail = (over: Partial<WordDetail> = {}): WordDetail => ({
   definition: [{ pos: "noun", gloss: "a large body of salt water" }],
   notes: [],
   aiDefinition: null,
+  aiSynonyms: null,
   aiDefinitionEnabled: false,
   ...over,
 });
+
+const aiMeaning = {
+  status: "done" as const,
+  senses: [{ pos: "noun", gloss: "a very large sea" }],
+  error: null,
+};
 
 function renderModal(
   initial?: WordModalInitial,
@@ -268,5 +276,47 @@ describe("WordModal", () => {
     renderModal(undefined, undefined, true);
     expect(await screen.findByText("my own meaning")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /AI definition/ })).not.toBeInTheDocument();
+  });
+
+  it("shows synonyms only after a meaning to read, right below it", async () => {
+    const synonyms = { status: "done" as const, synonyms: ["sea", "deep"], error: null };
+    vi.mocked(api.getWordDetail).mockResolvedValue(detail({ aiSynonyms: synonyms }));
+    const { unmount } = renderModal(undefined, undefined, true);
+    expect(await screen.findByText("a large body of salt water")).toBeInTheDocument();
+    expect(screen.queryByText("Synonyms")).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(api.getWordDetail).mockResolvedValue(
+      detail({ aiDefinition: aiMeaning, aiSynonyms: synonyms }),
+    );
+    renderModal(undefined, undefined, true);
+    expect(await screen.findByText("sea")).toBeInTheDocument();
+    expect(screen.getByText("deep")).toBeInTheDocument();
+  });
+
+  it("offers the synonyms button next to the user's own definition", async () => {
+    vi.mocked(api.checkUsage).mockResolvedValue({ allowed: true, windows: [] });
+    vi.mocked(api.getWordDetail).mockResolvedValue(
+      detail({ aiDefinitionEnabled: true, notes: [{ id: "n1", note: "my own meaning" }] }),
+    );
+    renderModal(undefined, undefined, true);
+    expect(await screen.findByRole("button", { name: /AI synonyms/ })).toBeInTheDocument();
+  });
+
+  it("waits for the synonyms a definition it watched finish, instead of offering the button", async () => {
+    vi.mocked(api.checkUsage).mockResolvedValue({ allowed: true, windows: [] });
+    vi.mocked(api.getWordDetail)
+      .mockResolvedValueOnce(
+        detail({
+          aiDefinitionEnabled: true,
+          aiDefinition: { status: "pending", senses: null, error: null },
+        }),
+      )
+      .mockResolvedValue(detail({ aiDefinitionEnabled: true, aiDefinition: aiMeaning }));
+    renderModal(undefined, undefined, true);
+
+    expect(await screen.findByText("a very large sea", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText(/Finding synonyms/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /AI synonyms/ })).not.toBeInTheDocument();
   });
 });

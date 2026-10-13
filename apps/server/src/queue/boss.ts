@@ -9,7 +9,10 @@ import {
   processGeneralAiDefinition,
   type GeneralAiDefinitionJob,
 } from "./processGeneralAiDefinition.js";
+import { processAiSynonyms, type AiSynonymsJob } from "./processAiSynonyms.js";
 import { chatJson } from "../ai/openrouter.js";
+import { requestAiSynonyms } from "../ai/synonymService.js";
+import type { SynonymsRequest } from "./processAiDefinition.js";
 
 /** The queue that runs ebook parsing + enrichment off the request path. */
 export const PROCESS_BOOK_QUEUE = "process-book";
@@ -20,6 +23,9 @@ export const AI_DEFINITION_QUEUE = "ai-definition";
 /** The queue that generates context-free AI definitions (no book in context). */
 export const AI_WORD_DEFINITION_QUEUE = "ai-word-definition";
 
+/** The queue that generates a word's AI synonyms (spec 15). */
+export const AI_SYNONYMS_QUEUE = "ai-word-synonyms";
+
 /** Daily prune of the usage ledger so `feature_usage_events` stays bounded. */
 export const PRUNE_USAGE_QUEUE = "prune-usage-events";
 
@@ -27,9 +33,13 @@ export interface ProcessBookJob {
   bookId: string;
 }
 
-export type { AiDefinitionJob, GeneralAiDefinitionJob };
+export type { AiDefinitionJob, GeneralAiDefinitionJob, AiSynonymsJob };
 
 let boss: PgBoss | null = null;
+
+/** The automatic follow-up to a finished definition never retries a failed attempt. */
+const requestSynonyms = (p: SynonymsRequest) =>
+  requestAiSynonyms(p.language, p.lemma, p.userId, p.bookId, { retryFailed: false });
 
 /**
  * Start pg-boss against the same Postgres and register the process-book worker.
@@ -55,6 +65,7 @@ export async function startQueue(logger: FastifyBaseLogger): Promise<void> {
       await processAiDefinition(job.data, logger, {
         chatJson,
         requeue: (payload, opts) => getBoss().send(AI_DEFINITION_QUEUE, payload, opts),
+        requestSynonyms,
       });
     }
   });
@@ -66,6 +77,17 @@ export async function startQueue(logger: FastifyBaseLogger): Promise<void> {
       await processGeneralAiDefinition(job.data, logger, {
         chatJson,
         requeue: (payload, opts) => getBoss().send(AI_WORD_DEFINITION_QUEUE, payload, opts),
+        requestSynonyms,
+      });
+    }
+  });
+
+  await boss.createQueue(AI_SYNONYMS_QUEUE);
+  await boss.work<AiSynonymsJob>(AI_SYNONYMS_QUEUE, async (jobs) => {
+    for (const job of jobs) {
+      await processAiSynonyms(job.data, logger, {
+        chatJson,
+        requeue: (payload, opts) => getBoss().send(AI_SYNONYMS_QUEUE, payload, opts),
       });
     }
   });

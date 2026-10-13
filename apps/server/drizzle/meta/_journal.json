@@ -43,6 +43,13 @@
       "when": 1783296000002,
       "tag": "0005_seed_general_ai_definition_limits",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783296000003,
+      "tag": "0006_seed_ai_synonyms_limits",
+      "breakpoints": true
     }
   ]
 }

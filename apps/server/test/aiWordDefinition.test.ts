@@ -21,6 +21,7 @@ vi.mock("../src/queue/boss.js", () => ({
   PROCESS_BOOK_QUEUE: "process-book",
   AI_DEFINITION_QUEUE: "ai-definition",
   AI_WORD_DEFINITION_QUEUE: "ai-word-definition",
+  AI_SYNONYMS_QUEUE: "ai-word-synonyms",
   PRUNE_USAGE_QUEUE: "prune-usage-events",
   getBoss: () => ({ send: sendSpy }),
   startQueue: vi.fn(),
@@ -45,10 +46,12 @@ function okResult(meanings: AiDefinitionOutput["meanings"]): ChatJsonResult<AiDe
 function makeDeps(meanings = [{ pos: "noun", meaning: "a large sea animal" }]) {
   const chat = vi.fn().mockResolvedValue(okResult(meanings));
   const requeue = vi.fn().mockResolvedValue(undefined);
+  const requestSynonyms = vi.fn().mockResolvedValue("enqueued");
   return {
     chat,
     requeue,
-    deps: { chatJson: chat, requeue } as unknown as GeneralAiDefinitionDeps,
+    requestSynonyms,
+    deps: { chatJson: chat, requeue, requestSynonyms } as unknown as GeneralAiDefinitionDeps,
   };
 }
 
@@ -156,6 +159,17 @@ describe("processGeneralAiDefinition", () => {
     expect(system).toContain("most common everyday meaning first");
   });
 
+  it("asks for the word's synonyms once done, with no book", async () => {
+    const { requestSynonyms, deps } = makeDeps();
+    await processGeneralAiDefinition({ language: "en", lemma: "whale", userId }, logger, deps);
+    expect(requestSynonyms).toHaveBeenCalledWith({
+      language: "en",
+      lemma: "whale",
+      userId,
+      bookId: null,
+    });
+  });
+
   it("charges the requester and records the usage", async () => {
     const { deps } = makeDeps();
     await processGeneralAiDefinition({ language: "en", lemma: "whale", userId }, logger, deps);
@@ -178,12 +192,14 @@ describe("processGeneralAiDefinition", () => {
 
   it("refunds the reserved quota when the call fails", async () => {
     const chat = vi.fn().mockRejectedValue(new Error("model exploded"));
-    const deps = { chatJson: chat, requeue: vi.fn() } as unknown as GeneralAiDefinitionDeps;
+    const requestSynonyms = vi.fn();
+    const deps = { chatJson: chat, requeue: vi.fn(), requestSynonyms } as unknown as GeneralAiDefinitionDeps;
     await processGeneralAiDefinition({ language: "en", lemma: "whale", userId }, logger, deps);
 
     const [row] = await db.select().from(aiWordDefinitions).where(eq(aiWordDefinitions.lemma, "whale"));
     expect(row!.status).toBe("failed");
     expect(row!.error).toContain("model exploded");
+    expect(requestSynonyms).not.toHaveBeenCalled();
     const events = await db
       .select()
       .from(featureUsageEvents)

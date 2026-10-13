@@ -36,6 +36,32 @@ export interface AiDefinitionJob {
 export interface AiDefinitionDeps {
   chatJson: typeof chatJson;
   requeue: (job: AiDefinitionJob, opts: { startAfter: number }) => Promise<unknown>;
+  /** Follow a finished definition with the word's synonyms (spec 15). */
+  requestSynonyms: (p: SynonymsRequest) => Promise<unknown>;
+}
+
+/** What a definition worker hands on to the synonyms pipeline once it is done. */
+export interface SynonymsRequest {
+  language: string;
+  lemma: string;
+  userId: string;
+  bookId: string | null;
+}
+
+/**
+ * The synonyms are a side-channel: a failure to queue them is logged, never allowed to
+ * turn the definition that just succeeded into a failed one. The modal's button covers it.
+ */
+export async function requestSynonymsQuietly(
+  logger: FastifyBaseLogger,
+  deps: Pick<AiDefinitionDeps, "requestSynonyms">,
+  p: SynonymsRequest,
+): Promise<void> {
+  try {
+    await deps.requestSynonyms(p);
+  } catch (err) {
+    logger.warn({ err, language: p.language, lemma: p.lemma }, "ai-word-synonyms: follow-up failed");
+  }
 }
 
 async function markFailed(id: string, error: string): Promise<void> {
@@ -175,6 +201,14 @@ export async function processAiDefinition(
       { bookId, lemma, meanings: meanings.length, model: result.model, costUsd: result.costUsd },
       "ai-definition: done",
     );
+    if (updated) {
+      await requestSynonymsQuietly(logger, deps, {
+        language: book.language,
+        lemma,
+        userId: book.userId,
+        bookId,
+      });
+    }
   } catch (err) {
     if (quota.eventId) await refund(quota.eventId);
     await markFailed(row.id, err instanceof Error ? err.message : String(err));

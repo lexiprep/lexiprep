@@ -6,6 +6,7 @@ import {
   requestGeneralAiDefinition,
   triggerAiDefinitions,
 } from "../ai/definitionService.js";
+import { AI_SYNONYMS_SLUG, requestAiSynonyms } from "../ai/synonymService.js";
 import { env } from "../env.js";
 import { peek } from "../usage/service.js";
 import { retryAfterSeconds } from "../usage/guard.js";
@@ -347,6 +348,58 @@ export async function wordRoutes(app: FastifyInstance): Promise<void> {
     }
     reply.code(202);
     return { aiDefinition: { status: "pending" } };
+  });
+
+  // The word's AI synonyms (spec 15) — the modal's button, for a word whose definition
+  // came before synonyms existed or whose synonyms failed. Shared per (language, lemma);
+  // an optional `bookId` of the caller's own lends that book's sentences to the prompt.
+  // Same contract as the definition routes: 202 + pending, 409 once done, 503
+  // unconfigured, advisory 429, 404 for a book that is not the caller's.
+  app.post("/words/:lemma/ai-synonyms", async (request, reply) => {
+    const { lemma } = request.params as { lemma: string };
+    const q = request.query as Record<string, string | undefined>;
+    const body = (request.body ?? {}) as { bookId?: unknown };
+    const key = decodeURIComponent(lemma).trim().toLowerCase();
+    if (key.length < 2) {
+      reply.code(400);
+      return { error: "A `lemma` must be at least 2 characters" };
+    }
+    let language = q.language ?? DEFAULT_LANGUAGE;
+    let bookId: string | null = null;
+    if (body.bookId !== undefined && body.bookId !== null) {
+      const book =
+        typeof body.bookId === "string" && UUID_RE.test(body.bookId)
+          ? await getBook(request.user!.id, body.bookId)
+          : null;
+      if (!book) {
+        reply.code(404);
+        return { error: "Not found" };
+      }
+      bookId = book.id;
+      language = book.language;
+    }
+    if (!env.OPENROUTER_API_KEY) {
+      reply.code(503);
+      return { error: "AI synonyms are not configured" };
+    }
+
+    const usage = await peek(request.user!.id, AI_SYNONYMS_SLUG);
+    if (!usage.allowed) {
+      const retryAfter = retryAfterSeconds(usage.windows);
+      reply.header("Retry-After", String(retryAfter));
+      reply.code(429);
+      return { error: "Usage limit reached", slug: AI_SYNONYMS_SLUG, retryAfter };
+    }
+
+    const result = await requestAiSynonyms(language, key, request.user!.id, bookId, {
+      retryFailed: true,
+    });
+    if (result === "done") {
+      reply.code(409);
+      return { error: "AI synonyms already generated" };
+    }
+    reply.code(202);
+    return { aiSynonyms: { status: "pending" } };
   });
 
   app.delete("/words/:lemma", async (request) => {

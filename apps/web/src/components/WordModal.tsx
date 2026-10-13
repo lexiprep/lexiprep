@@ -6,10 +6,12 @@ import {
   getWordDetail,
   setWordStatus,
   type UserWordStatus,
+  type WordDetail,
   type WordEventSource,
 } from "../lib/api";
 import { formSetOf, highlightForms } from "../lib/highlight";
 import { AiDefinitionSection } from "./AiDefinitionSection";
+import { AiSynonymsSection } from "./AiSynonymsSection";
 import { LevelBadge, StatusBadge } from "./badges";
 import { ModalOverlay } from "./ModalOverlay";
 import { WordMeaning } from "./WordMeaning";
@@ -41,6 +43,15 @@ export interface WordModalInitial {
 const errMessage = (err: unknown, fallback: string) =>
   err instanceof Error && err.message ? err.message : fallback;
 
+/**
+ * A definition that finishes queues its synonyms a moment later, so the first detail to
+ * show it done may not show them yet. Polls to wait for them before offering the button.
+ */
+const MAX_SYNONYM_FOLLOW_UP_POLLS = 5;
+
+const meaningPending = (d: WordDetail | undefined) =>
+  d?.aiDefinition?.status === "pending" || d?.generalAiDefinition?.status === "pending";
+
 export function WordModal({
   bookId,
   word,
@@ -71,14 +82,25 @@ export function WordModal({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  // Set once this modal has watched a definition generate: its synonyms follow on their own.
+  const [sawMeaningPending, setSawMeaningPending] = useState(false);
+  const [followUpPolls, setFollowUpPolls] = useState(0);
+  const awaitsSynonyms = (d: WordDetail | undefined) =>
+    sawMeaningPending &&
+    !!d &&
+    !meaningPending(d) &&
+    !d.aiSynonyms &&
+    followUpPolls < MAX_SYNONYM_FOLLOW_UP_POLLS;
+
   const detail = useQuery({
     queryKey: ["word", bookId, word],
     queryFn: () => getWordDetail(bookId, word),
-    // Poll while an AI definition is generating (same pattern as book processing).
-    // Poll while either generation is running — which one matters depends on the scope.
+    // Poll while an AI generation is running (same pattern as book processing): either
+    // definition — which one matters depends on the scope — or the synonyms.
     refetchInterval: (q) =>
-      q.state.data?.aiDefinition?.status === "pending" ||
-      q.state.data?.generalAiDefinition?.status === "pending"
+      meaningPending(q.state.data) ||
+      q.state.data?.aiSynonyms?.status === "pending" ||
+      awaitsSynonyms(q.state.data)
         ? 1500
         : false,
   });
@@ -112,6 +134,18 @@ export function WordModal({
   // Inside a book, the contextual definition is the relevant one; outside any book it's
   // the word's own, book-independent meanings.
   const scopedAi = (bookScoped ? d?.aiDefinition : d?.generalAiDefinition) ?? null;
+
+  const awaitingSynonyms = awaitsSynonyms(d);
+  useEffect(() => {
+    if (meaningPending(d)) setSawMeaningPending(true);
+  }, [d]);
+  useEffect(() => {
+    if (awaitingSynonyms) setFollowUpPolls((n) => n + 1);
+    // Counts fetches, not renders: one step per detail that still lacks the synonyms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.dataUpdatedAt]);
+  // Synonyms come after a meaning to read: an AI one, or the user's own.
+  const hasMeaning = scopedAi?.status === "done" || (d?.notes.length ?? 0) > 0;
 
   // Status shown on the buttons. Source of truth is the server (`d.status`), falling back
   // to the row data while the detail loads. `pending` is an optimistic override applied the
@@ -243,6 +277,19 @@ export function WordModal({
             aiDefinition={scopedAi}
             enabled={d.aiDefinitionEnabled}
             bookScoped={bookScoped}
+          />
+        )}
+
+        {d && hasMeaning && (
+          <AiSynonymsSection
+            bookId={bookId}
+            word={word}
+            language={language}
+            aiSynonyms={
+              d.aiSynonyms ??
+              (awaitingSynonyms ? { status: "pending", synonyms: null, error: null } : null)
+            }
+            enabled={d.aiDefinitionEnabled}
           />
         )}
 

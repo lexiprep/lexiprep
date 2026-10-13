@@ -509,6 +509,34 @@ export const aiWordDefinitions = pgTable(
 export type AiWordDefinition = typeof aiWordDefinitions.$inferSelect;
 export type NewAiWordDefinition = typeof aiWordDefinitions.$inferInsert;
 
+/**
+ * AI synonyms for a word (spec 15): one row per (language, lemma), shared by every book
+ * and every user, like {@link aiWordDefinitions}. A book may lend its sentences to the
+ * prompt, but the synonyms describe the word in general, so the row has no book FK.
+ * Same lifecycle as the definition jobs: `done` is immutable, only `failed` is retried.
+ * `synonyms` is set once `done`, best first, and may be empty: a word with no close
+ * synonym gets none rather than loose ones.
+ */
+export const aiWordSynonyms = pgTable(
+  "ai_word_synonyms",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    language: text("language").notNull(),
+    lemma: text("lemma").notNull(),
+    /** pending | done | failed ({@link AI_DEFINITION_STATUSES}). */
+    status: text("status").notNull().default("pending"),
+    synonyms: text("synonyms").array(),
+    error: text("error"),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    costUsd: real("cost_usd"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique("ai_word_synonyms_lang_lemma_uniq").on(t.language, t.lemma)],
+);
+
 export type WordLevel = typeof wordLevels.$inferSelect;
 export type NewWordLevel = typeof wordLevels.$inferInsert;
 export type Definition = typeof definitions.$inferSelect;

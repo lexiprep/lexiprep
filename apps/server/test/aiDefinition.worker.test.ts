@@ -42,11 +42,13 @@ function makeDeps() {
     ]),
   );
   const requeue = vi.fn().mockResolvedValue(undefined);
+  const requestSynonyms = vi.fn().mockResolvedValue("enqueued");
   const deps: AiDefinitionDeps = {
     chatJson: chat as unknown as typeof chatJson,
     requeue,
+    requestSynonyms,
   };
-  return { chat, requeue, deps };
+  return { chat, requeue, requestSynonyms, deps };
 }
 
 let userId: string;
@@ -208,6 +210,41 @@ describe("processAiDefinition", () => {
 
     expect(chat).not.toHaveBeenCalled();
     expect(await usageCount()).toBe(0);
+  });
+
+  it("asks for the word's synonyms once the definition is done, with the book as context", async () => {
+    await addAiDefinition(bookId, "whale");
+    const { requestSynonyms, deps } = makeDeps();
+
+    await processAiDefinition({ bookId, lemma: "whale" }, logger, deps);
+
+    expect(requestSynonyms).toHaveBeenCalledWith({
+      language: "en",
+      lemma: "whale",
+      userId,
+      bookId,
+    });
+  });
+
+  it("asks for no synonyms when the definition fails", async () => {
+    await addAiDefinition(bookId, "whale");
+    const { chat, requestSynonyms, deps } = makeDeps();
+    chat.mockRejectedValue(new Error("model exploded"));
+
+    await processAiDefinition({ bookId, lemma: "whale" }, logger, deps);
+
+    expect(requestSynonyms).not.toHaveBeenCalled();
+  });
+
+  it("keeps the definition done when queueing the synonyms fails", async () => {
+    await addAiDefinition(bookId, "whale");
+    const { requestSynonyms, deps } = makeDeps();
+    requestSynonyms.mockRejectedValue(new Error("queue down"));
+
+    await processAiDefinition({ bookId, lemma: "whale" }, logger, deps);
+
+    expect(await jobRow()).toMatchObject({ status: "done", error: null });
+    expect(await usageCount()).toBe(1);
   });
 
   it("fails cleanly when the API key is not configured", async () => {

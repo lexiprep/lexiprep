@@ -9,6 +9,7 @@
 export const PAID_FEATURES = [
   "ai-word-definition-from-context",
   "ai-word-definition-general",
+  "ai-word-synonyms",
 ] as const;
 
 export type PaidFeatureSlug = (typeof PAID_FEATURES)[number];
@@ -37,6 +38,11 @@ export const FEATURE_META: Record<PaidFeatureSlug, FeatureMeta> = {
     description: "Explains a word on its own, with no book in context.",
     enforced: true,
   },
+  "ai-word-synonyms": {
+    label: "AI synonyms",
+    description: "Up to five close synonyms for a word.",
+    enforced: true,
+  },
 };
 
 /** Type guard: is `v` a known paid-feature slug? */
@@ -53,3 +59,9 @@ export const AI_DEFINITION_SLUG: PaidFeatureSlug = "ai-word-definition-from-cont
  * eat the contextual feature's budget.
  */
 export const AI_GENERAL_DEFINITION_SLUG: PaidFeatureSlug = "ai-word-definition-general";
+
+/**
+ * The synonyms pipeline's slug. Its own budget: synonyms are requested on their own
+ * after every AI definition, so sharing a slug would halve what a review batch can define.
+ */
+export const AI_SYNONYMS_SLUG: PaidFeatureSlug = "ai-word-synonyms";

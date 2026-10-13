@@ -99,6 +99,14 @@ export interface AiDefinition {
   error: string | null;
 }
 
+/** The word's AI synonyms (spec 15): shared across books, best first. */
+export interface AiSynonyms {
+  status: AiDefinitionStatus;
+  /** Set once `status` is `done`; may be empty — the word has no close synonym. */
+  synonyms: string[] | null;
+  error: string | null;
+}
+
 /** One of the user's own per-book definitions (several allowed per word). */
 export interface WordNoteItem {
   id: string;
@@ -133,6 +141,7 @@ export interface WordDetail {
   aiDefinition: AiDefinition | null;
   /** Book-independent meanings — what a library-wide modal offers instead. */
   generalAiDefinition: AiDefinition | null;
+  aiSynonyms: AiSynonyms | null;
   /** False when the server has no OpenRouter key — hide the AI UI entirely. */
   aiDefinitionEnabled: boolean;
 }
@@ -420,6 +429,16 @@ export const generateGeneralAiDefinition = (word: string, language = "en") =>
   request<{ aiDefinition: AiDefinition }>(
     `/api/words/${encodeURIComponent(word)}/ai-definition${qs({ language })}`,
     { method: "POST" },
+  );
+
+/**
+ * Request the word's AI synonyms (202 → poll the word detail). `bookId` lends that
+ * book's sentences to the prompt. 429 = usage limit; 409 = already generated.
+ */
+export const generateAiSynonyms = (word: string, language = "en", bookId?: string) =>
+  request<{ aiSynonyms: AiSynonyms }>(
+    `/api/words/${encodeURIComponent(word)}/ai-synonyms${qs({ language })}`,
+    { method: "POST", body: JSON.stringify(bookId ? { bookId } : {}) },
   );
 
 export const reviewBatch = (
@@ -724,7 +743,8 @@ export const updateSettings = (patch: Partial<UserSettings>) =>
 /** Slugs mirror the server registry (`apps/server/src/usage/features.ts`). */
 export type PaidFeatureSlug =
   | "ai-word-definition-from-context"
-  | "ai-word-definition-general";
+  | "ai-word-definition-general"
+  | "ai-word-synonyms";
 export type UsageWindow = "minute" | "hour" | "day" | "month";
 
 export interface UsageWindowInfo {

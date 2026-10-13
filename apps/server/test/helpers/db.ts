@@ -28,6 +28,7 @@ const TABLES = [
   "book_covers",
   "ai_definitions",
   "ai_word_definitions",
+  "ai_word_synonyms",
   "word_senses",
   "definition_fetches",
   "definitions",

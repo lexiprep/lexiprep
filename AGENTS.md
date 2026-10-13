@@ -250,6 +250,18 @@ against the old `node_modules`. Never run `make install` against production on y
   not proven identical is kept, with a non-zero exit. Run `make backup` beforehand and
   keep that dump: it is the last one containing the files. After this the bucket holds
   the only copy of each book.
+- **AI synonyms** done (`docs/specs/15`): the word modal's **Synonyms** section, after the
+  meaning and only once there is one to read (an AI definition in scope, or the user's own).
+  Up to five, best first, one flat list per word, shared by every book and user in
+  `ai_word_synonyms(language, lemma)`; an empty list is a valid answer. Never harder than
+  the word: the prompt carries its CEFR level and `keepNoHarder` drops one-word synonyms
+  above it (A1-A2 always pass) or missing from the CEFR list. Own prompt
+  (`ai/synonymPrompt.ts`, no count in the prose), own queue `ai-word-synonyms`, own
+  metered slug (drizzle `0006`, 10/min + 120/hour). Both definition workers request the
+  synonyms when they finish (`requestSynonyms` is injected; a failure there never fails the
+  definition); `POST /api/words/:lemma/ai-synonyms` (`{bookId?}` lends that book's
+  sentences) backs the modal's button for older words, the user's own definitions and
+  failures. `getWordDetail` returns `aiSynonyms`.
 - Roadmap in `docs/specs/00-overview.md`: (2) lemmatization, (3) enrichment
   (CEFR levels eager / context examples in core / definitions lazy+pluggable —
   Cambridge isn't open-cacheable, default is Free Dictionary API/Wiktionary),

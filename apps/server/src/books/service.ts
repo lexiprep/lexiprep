@@ -23,6 +23,7 @@ import {
   userWordEvents,
   aiDefinitions,
   aiWordDefinitions,
+  aiWordSynonyms,
   wordNotes,
   wordLookups,
   type Book,
@@ -1213,6 +1214,25 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
       }
     : null;
 
+  // The word's AI synonyms (spec 15): global like the context-free definition, whichever
+  // book or view first asked for them.
+  const [syn] = await db
+    .select({
+      status: aiWordSynonyms.status,
+      synonyms: aiWordSynonyms.synonyms,
+      error: aiWordSynonyms.error,
+    })
+    .from(aiWordSynonyms)
+    .where(and(eq(aiWordSynonyms.language, book.language), eq(aiWordSynonyms.lemma, key)))
+    .limit(1);
+  const aiSynonyms = syn
+    ? {
+        status: syn.status,
+        synonyms: syn.status === "done" ? (syn.synonyms ?? []) : null,
+        error: syn.error,
+      }
+    : null;
+
   return {
     word: key,
     lemma: key,
@@ -1233,6 +1253,7 @@ export async function getWordDetail(userId: string, book: Book, rawWord: string)
     aiDefinition,
     /** Book-independent meanings, shown when no single book is in context. */
     generalAiDefinition,
+    aiSynonyms,
     aiDefinitionEnabled: Boolean(env.OPENROUTER_API_KEY),
   };
 }

@@ -918,6 +918,15 @@ table.words tbody tr:last-child td {
   gap: 5px;
   font-weight: 550;
 }
+.synonyms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+}
+.synonym {
+  font-weight: 550;
+}
 .modal-actions {
   display: flex;
   gap: 8px;
